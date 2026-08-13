@@ -1,7 +1,7 @@
 node_modules/
 out/
 dist/
-release/
+release/          # electron-builder 输出（安装包不上传 git）
 
 # Dev data (SQLite + sandboxes)
 data/
