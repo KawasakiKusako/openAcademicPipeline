@@ -1,0 +1,26 @@
+node_modules/
+out/
+dist/
+release/
+
+# Dev data (SQLite + sandboxes)
+data/
+
+# Scratch files
+AAAAA.MD
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.local
+.env.*.local

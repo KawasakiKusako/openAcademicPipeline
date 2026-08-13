@@ -1,0 +1,191 @@
+/* ---------- Open Academic Pipeline design system (VSCode-inspired) ---------- */
+
+:root[data-theme='dark'] {
+  /* surfaces — VSCode dark */
+  --bg: #1e1e1e;
+  --bg-side: #252526;
+  --bg-card: #2d2d30;
+  --bg-hover: #37373d;
+  --bg-input: #1e1e1e;
+  --bg-active: #37373d;
+
+  /* lines */
+  --border: #3c3c3c;
+  --border-strong: #4d4d55;
+
+  /* text */
+  --fg: #e8e8e8;
+  --fg-dim: #9e9e9e;
+  --fg-faint: #6e6e6e;
+
+  /* accents — VSCode blue */
+  --accent: #3794ff;
+  --accent-2: #569cd6;
+  --accent-soft: rgba(55, 148, 255, 0.13);
+  --accent-grad: var(--accent);
+  --on-accent: #0a1018;
+
+  /* status */
+  --success: #4ec9b0;
+  --success-soft: rgba(78, 201, 176, 0.13);
+  --warn: #d7ba7d;
+  --warn-soft: rgba(215, 186, 125, 0.13);
+  --danger: #f14c4c;
+  --danger-soft: rgba(241, 76, 76, 0.11);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme='light'] {
+  /* surfaces — VSCode light */
+  --bg: #ffffff;
+  --bg-side: #f3f3f3;
+  --bg-card: #f7f8fa;
+  --bg-hover: #eaeaea;
+  --bg-input: #ffffff;
+  --bg-active: #e4e6eb;
+
+  /* lines */
+  --border: #e0e3e8;
+  --border-strong: #c8ccd4;
+
+  /* text */
+  --fg: #1f2328;
+  --fg-dim: #57606a;
+  --fg-faint: #8b949e;
+
+  /* accents — GitHub/VSCode blue */
+  --accent: #0969da;
+  --accent-2: #4d90fe;
+  --accent-soft: rgba(9, 105, 218, 0.1);
+  --accent-grad: var(--accent);
+  --on-accent: #ffffff;
+
+  /* status */
+  --success: #1a7f37;
+  --success-soft: rgba(26, 127, 55, 0.1);
+  --warn: #9a6700;
+  --warn-soft: rgba(154, 103, 0, 0.1);
+  --danger: #cf222e;
+  --danger-soft: rgba(207, 34, 46, 0.08);
+
+  --shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+  --shadow-lg: 0 16px 48px rgba(31, 35, 40, 0.18);
+}
+
+:root {
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 16px;
+  --sidebar-w: 264px;
+  --activity-w: 48px;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* accent color variants (个性化强调色) */
+:root[data-accent='green'] {
+  --accent: #3fb950;
+  --accent-2: #56d364;
+  --accent-soft: rgba(63, 185, 80, 0.13);
+  --on-accent: #0a1018;
+}
+
+:root[data-accent='purple'] {
+  --accent: #a371f7;
+  --accent-2: #bc8cff;
+  --accent-soft: rgba(163, 113, 247, 0.13);
+  --on-accent: #0a1018;
+}
+
+:root[data-accent='orange'] {
+  --accent: #d29922;
+  --accent-2: #e3b341;
+  --accent-soft: rgba(210, 153, 34, 0.13);
+  --on-accent: #0a1018;
+}
+
+:root[data-accent='custom'] {
+  --accent: var(--custom-accent, #3794ff);
+  --accent-2: var(--custom-accent, #3794ff);
+  --accent-soft: color-mix(in srgb, var(--custom-accent, #3794ff) 13%, transparent);
+  --on-accent: #ffffff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+code,
+pre,
+.mono {
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-faint);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
