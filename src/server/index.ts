@@ -19,6 +19,11 @@ import { skillsRouter } from './routes/skills'
 import { recommendationsRouter } from './routes/recommendations'
 import { scratchRouter } from './routes/scratch'
 import { updateRouter } from './routes/update'
+import { personalizationRouter } from './routes/personalization'
+import { presentRouter } from './routes/present'
+import { officeRouter } from './routes/office'
+import { presentAssistRouter } from './routes/present-assist'
+import { initPersonalization } from './personalization'
 
 export const SERVER_PORT = 11455
 
@@ -52,6 +57,10 @@ function createApp(): Express {
   app.use('/api', recommendationsRouter)
   app.use('/api', scratchRouter)
   app.use('/api', updateRouter)
+  app.use('/api', personalizationRouter)
+  app.use('/api', presentRouter)
+  app.use('/api', officeRouter)
+  app.use('/api', presentAssistRouter)
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, time: new Date().toISOString() })
@@ -79,6 +88,7 @@ let server: ReturnType<Express['listen']> | null = null
 export function startServer(port = SERVER_PORT): Promise<void> {
   mkdirSync(SANDBOXES_ROOT, { recursive: true })
   getDb() // initialize schema eagerly so failures surface at startup
+  initPersonalization() // 注册内置个性化设置 + 加载第三方 JSON schema
 
   return new Promise((resolve, reject) => {
     const app = createApp()

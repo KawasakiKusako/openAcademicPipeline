@@ -94,6 +94,71 @@ chatRouter.post('/temp/chat', (req, res) => {
   })
 })
 
+// 临时对话（汇报助手/悬浮窗）：走原生 API 引擎（响应快，无需 spawn CLI）。
+// 支持 system（导入文件上下文）与 effort（思考强度，按请求覆盖）。
+chatRouter.post('/temp/chat-api', (req, res) => {
+  if (!apiKeyConfigured()) {
+    res.status(400).json({ error: '未配置 API Key，请到 设置 → API 直连 配置' })
+    return
+  }
+  const content = String(req.body?.content ?? '').trim()
+  if (!content) {
+    res.status(400).json({ error: '消息内容不能为空' })
+    return
+  }
+  const system = typeof req.body?.system === 'string' ? req.body.system : undefined
+  const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model.trim() : undefined
+  const effort = (['low', 'medium', 'high', 'max'] as const).includes(req.body?.effort)
+    ? (req.body.effort as 'low' | 'medium' | 'high' | 'max')
+    : undefined
+  const history = (req.body?.history ?? []) as { role: 'user' | 'assistant'; content: string }[]
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  })
+  const abort = new AbortController()
+  res.on('close', () => {
+    if (!res.writableEnded) abort.abort()
+  })
+
+  apiEngine
+    .run({
+      prompt: content,
+      system,
+      effort,
+      model,
+      history: history.map((h, i) => ({
+        id: `tmp-${i}`,
+        sessionId: '',
+        role: h.role,
+        content: h.content,
+        toolUses: [],
+        createdAt: ''
+      })),
+      signal: abort.signal,
+      onError: (err) => {
+        if (!res.writableEnded) sseSend(res, 'error', { message: err.message })
+      },
+      onText: (delta) => {
+        if (!res.writableEnded) sseSend(res, 'text', { delta })
+      }
+    })
+    .then(() => {
+      if (!res.writableEnded) {
+        sseSend(res, 'done', {})
+        res.end()
+      }
+    })
+    .catch((err: Error) => {
+      if (!res.writableEnded) {
+        sseSend(res, 'error', { message: err.message })
+        res.end()
+      }
+    })
+})
+
 // ARS skill catalogue for the task creator / task badges
 chatRouter.get('/ars-skills', (_req, res) => {
   res.json(arsSkillCatalogue())

@@ -3,7 +3,8 @@ import type { FormEvent, JSX } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, sendChat } from '../lib/api'
 import type { ArsSkillEntry } from '../lib/api'
-import { IconBack, IconLibrary, IconSend, IconStop, IconTrash } from '../components/Icon'
+import { IconBack, IconLibrary, IconSend, IconStop, IconTask, IconTrash } from '../components/Icon'
+import { MdText } from '../components/workspace/MarkdownEditor'
 import type { ClaudeStatus, Message, Session, Task, ToolUse } from '@shared/types'
 
 const ENGINE_LABEL: Record<Session['engine'], string> = {
@@ -247,12 +248,17 @@ function MessageBubble({ message }: { message: Message; key?: string }): JSX.Ele
         <div className="tool-uses">
           {message.toolUses.map((t, i) => (
             <span key={i} className="tool-chip" title={JSON.stringify(t.input)}>
-              🛠 {t.name}
+              <IconTask size={11} />
+              {t.name}
             </span>
           ))}
         </div>
       )}
-      <div className="bubble-text">{message.content || '（无文本回复）'}</div>
+      {message.role === 'assistant' ? (
+        <MdText text={message.content || '（无文本回复）'} />
+      ) : (
+        <div className="bubble-text">{message.content}</div>
+      )}
     </div>
   )
 }

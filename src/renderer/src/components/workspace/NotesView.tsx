@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
 import { api } from '../../lib/api'
 import { IconChevronDown, IconClose, IconDoc, IconFolder, IconPlus, IconSave, IconTrash } from '../Icon'
+import { MdWysiwyg, ModeSwitch, markdownToHtml } from './MarkdownEditor'
+import CodeEditor from './CodeEditor'
 import type { FileTreeNode, Library } from '@shared/types'
+import type { MdMode } from './MarkdownEditor'
 
 // 笔记库（侧栏）：库列表 + 递归文件树 + 模态编辑器（读写）
 export default function NotesView({
@@ -19,6 +22,7 @@ export default function NotesView({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<{ lib: Library; path: string; name: string; content: string } | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [mdMode, setMdMode] = useState<MdMode>('code')
   const [error, setError] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -36,6 +40,11 @@ export default function NotesView({
   useEffect(() => {
     if (activeLib) loadTree(activeLib)
   }, [activeLib, loadTree])
+
+  const mdHtml = useMemo(
+    () => (editing ? markdownToHtml(editing.content) : ''),
+    [editing?.content] // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   async function handleOpen(lib: Library, node: FileTreeNode): Promise<void> {
     if (node.type === 'dir') {
@@ -182,6 +191,7 @@ export default function NotesView({
                 {editing.lib.name} / {editing.path}
               </h3>
               <div className="row gap">
+                <ModeSwitch mode={mdMode} setMode={setMdMode} />
                 <button className="btn small primary" onClick={handleSave} disabled={!dirty}>
                   <IconSave size={12} />
                   {dirty ? '保存' : '已保存'}
@@ -191,15 +201,40 @@ export default function NotesView({
                 </button>
               </div>
             </div>
-            <textarea
-              className="lit-import-textarea note-editor-body"
-              value={editing.content}
-              onChange={(e) => {
-                setEditing({ ...editing, content: e.target.value })
-                setDirty(true)
-              }}
-              spellCheck={false}
-            />
+            {mdMode === 'code' ? (
+              <CodeEditor
+                path={editing.path}
+                value={editing.content}
+                onChange={(v) => {
+                  setEditing({ ...editing, content: v })
+                  setDirty(true)
+                }}
+              />
+            ) : mdMode === 'split' ? (
+              <div className="wb-md-split note-editor-body">
+                <div className="wb-code-wrap">
+                  <CodeEditor
+                    path={editing.path}
+                    value={editing.content}
+                    onChange={(v) => {
+                      setEditing({ ...editing, content: v })
+                      setDirty(true)
+                    }}
+                  />
+                </div>
+                <div className="wb-md-divider" />
+                <div className="wb-md-preview" dangerouslySetInnerHTML={{ __html: mdHtml }} />
+              </div>
+            ) : (
+              <MdWysiwyg
+                value={editing.content}
+                onChange={(v) => {
+                  setEditing({ ...editing, content: v })
+                  setDirty(true)
+                }}
+                exportName={editing.name.replace(/\.md$/i, '') + '.docx'}
+              />
+            )}
           </div>
         </div>
       )}

@@ -6,7 +6,7 @@
 
 > An open-source academic research assistant workspace — organizing projects, tasks, sessions, and knowledge libraries around a full research pipeline powered by Claude Code and Academic Research Skills (ARS).
 
-![Version](https://img.shields.io/badge/version-0.5.1-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-blue)
 ![License](https://img.shields.io/badge/license-MIT%20%2B%20GPLv3-green)
 
 [Official Website](https://kawasakikusako.github.io/generalExp/oap/) · [GitHub Repository](https://github.com/KawasakiKusako/openAcademicPipeline) · [中文 README](../README.md)

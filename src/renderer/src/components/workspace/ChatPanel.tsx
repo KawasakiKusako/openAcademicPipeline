@@ -3,6 +3,7 @@ import type { FormEvent, JSX } from 'react'
 import { api, sendChat } from '../../lib/api'
 import { useWorkspaceStore } from '../../store/workspace'
 import { IconSend, IconStop } from '../Icon'
+import { MdText } from './MarkdownEditor'
 import type { Message, ToolUse } from '@shared/types'
 
 // 会话面板：消息流 + 输入（工作台会话选项卡 / 独立会话页共用）
@@ -116,7 +117,11 @@ export default function ChatPanel({
                 ))}
               </div>
             )}
-            <div className="bubble-text">{m.content}</div>
+            {m.role === 'assistant' ? (
+              <MdText text={m.content} />
+            ) : (
+              <div className="bubble-text">{m.content}</div>
+            )}
           </div>
         ))}
         {(streaming || sending) && (
@@ -130,7 +135,7 @@ export default function ChatPanel({
                 ))}
               </div>
             )}
-            {streaming || <span className="typing">思考中</span>}
+            {streaming ? <MdText text={streaming} /> : <span className="typing">思考中</span>}
           </div>
         )}
       </div>

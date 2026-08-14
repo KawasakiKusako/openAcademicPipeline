@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
 import { api } from '../lib/api'
 import { IconFolder, IconDoc, IconPlay, IconPlus, IconSave } from './Icon'
+import FileTypeIcon from './FileTypeIcon'
 import type { AppSettings, FileTreeNode, RunResult, Task } from '@shared/types'
 
 interface Props {
@@ -57,7 +58,8 @@ export default function TaskSandboxView({ task, projectId }: Props): JSX.Element
   }
 
   async function handleSave(): Promise<void> {
-    if (!activePath) return
+    // 保护：无修改不写盘，避免空/旧内容覆盖磁盘文件
+    if (!activePath || !dirty) return
     await api.writeFile(projectId, activePath, content)
     setDirty(false)
     loadTree()
@@ -84,7 +86,7 @@ export default function TaskSandboxView({ task, projectId }: Props): JSX.Element
     setError(null)
     setResult(null)
     try {
-      await handleSave()
+      if (dirty) await handleSave()
       setResult(await api.runScript(task.id, activePath))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -109,7 +111,7 @@ export default function TaskSandboxView({ task, projectId }: Props): JSX.Element
         </div>
         <div className="sb-tree-body">
           <TreeNode
-            node={{ name: '📦 沙盒', path: '', type: 'dir', children: tree }}
+            node={{ name: '沙盒', path: '', type: 'dir', children: tree }}
             depth={0}
             expanded={expanded}
             activePath={activePath}
@@ -217,7 +219,7 @@ function TreeNode({
         {isDir ? (
           <IconFolder size={13} className={isOpen ? 'open' : ''} />
         ) : (
-          <IconDoc size={13} />
+          <FileTypeIcon path={node.path} size={13} />
         )}
         <span className="sb-node-name">{node.name}</span>
       </div>

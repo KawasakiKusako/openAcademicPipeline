@@ -1,7 +1,7 @@
 import type {
-  AccentColor,
   AppSettings,
   ClaudeStatus,
+  SlideDetail,
   CreateProjectInput,
   EffortLevel,
   FileTreeNode,
@@ -9,12 +9,12 @@ import type {
   PythonEnv,
   RunResult,
   TaskKind,
-  Theme,
   CreateSessionInput,
   CreateTaskInput,
   FileEntry,
   Library,
   Message,
+  PersonalizationField,
   Project,
   ProjectTypeTemplate,
   Session,
@@ -126,6 +126,41 @@ export const api = {
     request<{ current: string; latest: string | null; updateAvailable: boolean; downloadPages: string[] }>(
       '/update-check'
     ),
+  officePreview: (
+    path: string,
+    opts?: { projectId?: string; detailed?: boolean }
+  ) =>
+    request<{
+      type: 'pptx' | 'docx' | 'xlsx'
+      name: string
+      slides?: string[][] | SlideDetail[]
+      html?: string
+      sheets?: { name: string; rows: string[][] }[]
+      detailed?: boolean
+    }>('/office/preview', {
+      method: 'POST',
+      body: JSON.stringify({ path, projectId: opts?.projectId, detailed: opts?.detailed })
+    }),
+  // 沙盒内文件 → 绝对路径（webview 预览等场景）
+  fileAbsPath: (projectId: string, path: string) =>
+    request<{ abs: string }>(`/projects/${projectId}/file/abs`, {
+      method: 'POST',
+      body: JSON.stringify({ path })
+    }),
+  clearCache: () =>
+    request<{ ok: boolean; freedBytes: number }>('/settings/clear-cache', { method: 'POST' }),
+  renderStatus: () =>
+    request<{ powerpoint: boolean; libreoffice: boolean }>('/office/render-status'),
+  convertToPdf: (path: string, projectId?: string) =>
+    request<{ pdfPath: string }>('/office/convert-pdf', {
+      method: 'POST',
+      body: JSON.stringify({ path, projectId })
+    }),
+  openExternal: (projectId: string, path: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/open-external`, {
+      method: 'POST',
+      body: JSON.stringify({ path })
+    }),
   recommendations: (projectId?: string) =>
     request<{
       keywords: string[]
@@ -140,14 +175,25 @@ export const api = {
     clearApiKey?: boolean
     model?: string
     baseUrl?: string
-    theme?: Theme
-    accent?: AccentColor
-    customAccent?: string
     pythonEnv?: PythonEnv
     effort?: EffortLevel
     skillsPath?: string
   }) =>
     request<AppSettings>('/settings', { method: 'PUT', body: JSON.stringify(input) }),
+  // 个性化设置：schema 驱动的通用接口
+  personalization: () =>
+    request<{ fields: PersonalizationField[]; values: Record<string, unknown> }>(
+      '/settings/personalization'
+    ),
+  updatePersonalization: (values: Record<string, unknown>) =>
+    request<{ values: Record<string, unknown> }>('/settings/personalization', {
+      method: 'PUT',
+      body: JSON.stringify({ values })
+    }),
+  reloadPersonalization: () =>
+    request<{ count: number; total: number }>('/settings/personalization/reload', {
+      method: 'POST'
+    }),
   sessionMessages: (sessionId: string) => request<Message[]>(`/sessions/${sessionId}/messages`),
   deleteSession: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
 
@@ -170,6 +216,11 @@ export const api = {
     request<{ id: string; content: string; summary: string; createdAt: string }[]>('/scratch'),
   createScratch: (input: { content: string; summary?: string }) =>
     request<{ id: string }>('/scratch', { method: 'POST', body: JSON.stringify(input) }),
+  updateScratch: (id: string, input: { content?: string; summary?: string }) =>
+    request<{ id: string; content: string; summary: string; createdAt: string }>(`/scratch/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input)
+    }),
   deleteScratch: (id: string) => request<void>(`/scratch/${id}`, { method: 'DELETE' }),
   importLiterature: (input: { text: string; format?: string; projectId?: string | null }) =>
     request<{ inserted: number; skipped: number; total: number }>('/literature/import', {

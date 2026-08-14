@@ -25,6 +25,7 @@ export class ApiEngine implements ChatEngine {
 
   async run(opts: RunChatOptions): Promise<EngineResult> {
     const { prompt, system, signal, onText, onError } = opts
+    const model = opts.model ?? this.model
     const messages: { role: string; content: string }[] = [
       ...(opts.history ?? []),
       { role: 'user', content: prompt }
@@ -39,13 +40,13 @@ export class ApiEngine implements ChatEngine {
     let text = ''
     let streamed = false
 
-    // thinking budget from the effort setting (API direct mode)
-    const effort = getEffort()
+    // thinking budget from the effort setting (API direct mode); per-request override wins
+    const effort = opts.effort ?? getEffort()
     const thinkingBudget = { low: 4000, medium: 8000, high: 16000, max: 32000 }[effort] ?? 8000
 
     const doFetch = async (withThinking: boolean): Promise<Response> => {
       const body: Record<string, unknown> = {
-        model: this.model,
+        model,
         max_tokens: 8192,
         system: system ?? undefined,
         messages,

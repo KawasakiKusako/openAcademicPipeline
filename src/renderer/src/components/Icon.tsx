@@ -297,3 +297,134 @@ export function IconDoc(props: IconProps): JSX.Element {
     </svg>
   )
 }
+
+export function IconPalette(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 22a10 10 0 1 1 10-10c0 2.2-1.8 3-3.5 3H16a2 2 0 0 0-1.5 3.3c.4.5.6 1 .3 1.7a1 1 0 0 1-.9.6z" />
+      <circle cx="7.5" cy="11.5" r="1" fill="currentColor" />
+      <circle cx="11" cy="7.5" r="1" fill="currentColor" />
+      <circle cx="16" cy="8.5" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function IconType(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M4 7V5h16v2M9 19h6M12 5v14" />
+    </svg>
+  )
+}
+
+export function IconHelp(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.4-3 4M12 17.5h.01" />
+    </svg>
+  )
+}
+
+export function IconDownload(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+    </svg>
+  )
+}
+
+export function IconCheck(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 12.5l2.3 2.3 4.8-5.2" />
+    </svg>
+  )
+}
+
+export function IconWarning(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  )
+}
+
+export function IconImage(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
+  )
+}
+
+export function IconPresent(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="2" y="4" width="20" height="13" rx="2" />
+      <path d="M8 21l4-4 4 4M12 17v4" />
+    </svg>
+  )
+}
+
+export function IconUpload(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+    </svg>
+  )
+}
+
+export function IconLink(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+
+export function IconUndo(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3 7v6h6" />
+      <path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+    </svg>
+  )
+}
+
+export function IconRedo(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 7v6h-6" />
+      <path d="M3 17a9 9 0 0 1 15-6.7L21 13" />
+    </svg>
+  )
+}
+
+export function IconRocket(props: IconProps): JSX.Element {
+  const { size = 16, className } = props
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2 0-2.8-.8-.7-2-.7-3 0z" />
+      <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+    </svg>
+  )
+}

@@ -4,8 +4,8 @@ import type { AccentColor, Theme } from '@shared/types'
 export type SidebarView = 'explorer' | 'tasks' | 'sessions' | 'library'
 
 export interface WsTab {
-  id: string // 'file:<path>' | 'task:<id>' | 'session:<id>' | 'settings:main'
-  kind: 'file' | 'task' | 'session' | 'settings' | 'recommend'
+  id: string // 'file:<path>' | 'task:<id>' | 'session:<id>' | 'settings:main' | 'settings-personal:main'
+  kind: 'file' | 'task' | 'session' | 'settings' | 'settings-personal' | 'recommend'
   title: string
   refId: string // file path / task id / session id
 }
@@ -23,6 +23,9 @@ interface WorkspaceState {
   panelHeight: number
   wordWrap: boolean
   fontSize: number
+  editorFontFamily: string
+  editorLineHeight: string
+  editorTheme: string
   runResult: { filePath: string; result: unknown } | null
   saveRequest: number
   clipboard: { path: string; cut: boolean } | null
@@ -44,6 +47,9 @@ interface WorkspaceState {
   setPanelHeight: (h: number) => void
   setWordWrap: (v: boolean) => void
   setFontSize: (n: number) => void
+  setEditorFontFamily: (f: string) => void
+  setEditorLineHeight: (l: string) => void
+  setEditorTheme: (t: string) => void
   setRunResult: (r: { filePath: string; result: unknown } | null) => void
   requestSave: () => void
   setClipboard: (c: { path: string; cut: boolean } | null) => void
@@ -74,6 +80,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   panelHeight: 180,
   wordWrap: false,
   fontSize: 13,
+  editorFontFamily: 'ui-monospace',
+  editorLineHeight: '1.7',
+  editorTheme: 'follow',
   runResult: null,
   saveRequest: 0,
   clipboard: null,
@@ -125,6 +134,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setPanelHeight: (h) => set({ panelHeight: Math.max(100, Math.min(h, 500)) }),
   setWordWrap: (v) => set({ wordWrap: v }),
   setFontSize: (n) => set({ fontSize: Math.max(10, Math.min(n, 24)) }),
+  setEditorFontFamily: (f) => set({ editorFontFamily: f }),
+  setEditorLineHeight: (l) => set({ editorLineHeight: l }),
+  setEditorTheme: (t) => set({ editorTheme: t }),
   setRunResult: (r) => set({ runResult: r }),
   requestSave: () => set((s) => ({ saveRequest: s.saveRequest + 1 })),
   setClipboard: (c) => set({ clipboard: c }),

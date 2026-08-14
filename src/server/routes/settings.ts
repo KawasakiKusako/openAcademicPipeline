@@ -1,6 +1,10 @@
 import { Router } from 'express'
+import { session } from 'electron'
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { getAppSettings, setSetting } from '../settings'
-import type { AppSettings, PythonEnv, SessionEngine, Theme } from '../../shared/types'
+import { getDb } from '../db'
+import type { AppSettings, PythonEnv, SessionEngine } from '../../shared/types'
 
 export const settingsRouter = Router()
 
@@ -13,6 +17,37 @@ export const pythonEnvInputGuard = (v: unknown): v is PythonEnv =>
 // Current settings with the API key masked (never echo the full key)
 settingsRouter.get('/settings', (_req, res) => {
   res.json(getAppSettings())
+})
+
+// POST /api/settings/clear-cache — 清除 Chromium 缓存与 Office 转换缓存（_oap_preview）
+settingsRouter.post('/settings/clear-cache', async (_req, res) => {
+  try {
+    let freedBytes = 0
+    // 1) Office 高保真转换缓存（各项目沙盒 _oap_preview）
+    const projects = getDb().prepare('SELECT sandbox_path FROM projects').all() as {
+      sandbox_path: string | null
+    }[]
+    for (const p of projects) {
+      if (!p.sandbox_path) continue
+      const dir = join(p.sandbox_path, '_oap_preview')
+      try {
+        const { statSync } = await import('node:fs')
+        if (statSync(dir).isDirectory()) {
+          freedBytes += statSync(dir).size
+          rmSync(dir, { recursive: true, force: true })
+        }
+      } catch {
+        // 目录不存在则跳过
+      }
+    }
+    // 2) Chromium 渲染缓存（应用内图片/页面缓存，不影响数据）
+    const ses = session.defaultSession
+    await ses.clearCache()
+    await ses.clearStorageData({ storages: ['cachestorage', 'serviceworkers'] })
+    res.json({ ok: true, freedBytes })
+  } catch (err) {
+    res.status(500).json({ error: `清除失败：${err instanceof Error ? err.message : String(err)}` })
+  }
 })
 
 // Save settings. apiKey may be omitted/empty to keep the existing one;
@@ -39,15 +74,6 @@ settingsRouter.put('/settings', (req, res) => {
   if (typeof body.baseUrl === 'string' && body.baseUrl.trim()) {
     setSetting('baseUrl', body.baseUrl.trim())
   }
-  if (body.theme === 'dark' || body.theme === 'light') {
-    setSetting('theme', body.theme as Theme)
-  }
-  if (body.accent === 'blue' || body.accent === 'green' || body.accent === 'purple' || body.accent === 'orange' || body.accent === 'custom') {
-    setSetting('accent', body.accent)
-  }
-  if (typeof body.customAccent === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.customAccent)) {
-    setSetting('customAccent', body.customAccent)
-  }
   if (body.effort === 'low' || body.effort === 'medium' || body.effort === 'high' || body.effort === 'max') {
     setSetting('effort', body.effort)
   }
@@ -60,18 +86,6 @@ settingsRouter.put('/settings', (req, res) => {
   }
   if (typeof body.skillsPath === 'string' && body.skillsPath.trim()) {
     setSetting('skillsPath', body.skillsPath.trim())
-  }
-  if (typeof body.username === 'string' && body.username.trim()) {
-    setSetting('username', body.username.trim())
-  }
-  if (Array.isArray(body.rssFeeds)) {
-    setSetting('rssFeeds', body.rssFeeds.map((f) => String(f).trim()).filter(Boolean))
-  }
-  if (Array.isArray(body.recKeywords)) {
-    setSetting('recKeywords', body.recKeywords.map((k) => String(k).trim()).filter(Boolean))
-  }
-  if (Array.isArray(body.recCategories)) {
-    setSetting('recCategories', body.recCategories.map((c) => String(c).trim()).filter(Boolean))
   }
 
   res.json(getAppSettings())

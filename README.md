@@ -6,7 +6,7 @@
 
 > 开源的学术研究助手工作台 —— 以项目为容器，将 Claude Code 与学术技能（ARS）整合为完整的研究管线。
 
-![Version](https://img.shields.io/badge/version-0.5.1-blue)
+![Version](https://img.shields.io/badge/version-0.7.4-blue)
 ![License](https://img.shields.io/badge/license-MIT%20%2B%20GPLv3-green)
 
 [官方网站](https://kawasakikusako.github.io/generalExp/oap/) · [GitHub 仓库](https://github.com/KawasakiKusako/openAcademicPipeline) · [English README](inputResoureces/README_EN.md)

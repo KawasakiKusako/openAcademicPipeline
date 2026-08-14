@@ -135,6 +135,8 @@ export interface MenuActions {
   onTempChat?: () => void
   onRecommend?: () => void
   onCheckUpdate?: () => void
+  onHelp?: () => void
+  onOpenSettings?: () => void
 }
 
 export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[] }[] {
@@ -158,7 +160,9 @@ export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[
     onImportProject,
     onTempChat,
     onRecommend,
-    onCheckUpdate
+    onCheckUpdate,
+    onHelp,
+    onOpenSettings
   } = opts
   return [
     {
@@ -168,7 +172,6 @@ export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[
         { label: '新建项目…', action: () => navigate('/projects/new') },
         { label: '导出当前项目…', action: () => onExportProject?.(), disabled: !projectId },
         { label: '导入项目…', action: () => onImportProject?.() },
-        { label: '设置', action: () => navigate('/settings') },
         { label: '退出', action: () => window.api.windowClose() }
       ]
     },
@@ -225,6 +228,9 @@ export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[
     {
       label: '帮助',
       items: [
+        { label: '帮助文档', action: () => onHelp?.() },
+        { label: '设置', action: () => onOpenSettings?.() },
+        { type: 'separator', label: '' },
         { label: '检查更新…', action: () => onCheckUpdate?.() },
         {
           label: '关于',

@@ -39,6 +39,26 @@ scratchRouter.post('/scratch', (req, res) => {
   res.status(201).json({ id, content, summary, createdAt: now() })
 })
 
+scratchRouter.put('/scratch/:id', (req, res) => {
+  const body = req.body as { content?: string; summary?: string }
+  const row = getDb().prepare('SELECT * FROM scratch_notes WHERE id = ?').get(req.params.id) as
+    | ScratchRow
+    | undefined
+  if (!row) {
+    res.status(404).json({ error: '随记不存在' })
+    return
+  }
+  const content = body.content === undefined ? row.content : String(body.content).trim()
+  const summary =
+    body.summary === undefined
+      ? row.summary
+      : String(body.summary).trim() || content.slice(0, 80)
+  getDb()
+    .prepare('UPDATE scratch_notes SET content = ?, summary = ? WHERE id = ?')
+    .run(content, summary, req.params.id)
+  res.json({ id: req.params.id, content, summary, createdAt: row.created_at })
+})
+
 scratchRouter.delete('/scratch/:id', (req, res) => {
   const result = getDb().prepare('DELETE FROM scratch_notes WHERE id = ?').run(req.params.id)
   if (result.changes === 0) {

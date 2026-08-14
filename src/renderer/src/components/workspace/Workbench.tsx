@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import ContextMenu from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
@@ -10,7 +10,11 @@ import CodeEditor from './CodeEditor'
 import { isTextFile } from './CodeEditor'
 import TaskSandboxView from '../TaskSandboxView'
 import SettingsPage from '../../pages/SettingsPage'
+import PersonalSettingsPage from '../../pages/PersonalSettingsPage'
 import RecommendationsPage from '../../pages/RecommendationsPage'
+import { MdWysiwyg, ModeSwitch } from './MarkdownEditor'
+import { SlideCanvas } from '../present/SlideCanvas'
+import type { SlideDetail } from '@shared/types'
 import { TaskFormView, TaskChatView } from '../../pages/TaskDetailPage'
 import {
   IconChat,
@@ -19,6 +23,7 @@ import {
   IconEye,
   IconFile,
   IconBook,
+  IconPalette,
   IconPanel,
   IconPlay,
   IconSettings,
@@ -124,6 +129,7 @@ export default function Workbench({ projectId }: { projectId: string }): JSX.Ele
             {tab.kind === 'task' && <IconTask size={13} />}
             {tab.kind === 'session' && <IconChat size={13} />}
             {tab.kind === 'settings' && <IconSettings size={13} />}
+            {tab.kind === 'settings-personal' && <IconPalette size={13} />}
             {tab.kind === 'recommend' && <IconBook size={13} />}
             <span className="wb-tab-title">{tab.title}</span>
             <button
@@ -172,6 +178,7 @@ export default function Workbench({ projectId }: { projectId: string }): JSX.Ele
             {tab.kind === 'task' && <TaskTab taskId={tab.refId} projectId={projectId} />}
             {tab.kind === 'session' && <ChatPanel sessionId={tab.refId} />}
             {tab.kind === 'settings' && <SettingsPage embedded />}
+            {tab.kind === 'settings-personal' && <PersonalSettingsPage embedded />}
             {tab.kind === 'recommend' && <RecommendationsPage embedded />}
           </div>
         ))}
@@ -297,16 +304,40 @@ function FileEditorTab({
   const [loaded, setLoaded] = useState(() => fileDrafts[path] !== undefined)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
-  const [preview, setPreview] = useState(false)
+  const [mdMode, setMdMode] = useState<'code' | 'split' | 'preview'>('code')
+  const [renderPreview, setRenderPreview] = useState(false)
+  const [htmlAbs, setHtmlAbs] = useState<string | null>(null)
   const isMd = path.toLowerCase().endsWith('.md')
+  const isHtml = /\.(html?|htm)$/i.test(path)
+  const isSvg = /\.svg$/i.test(path)
   const isPy = path.toLowerCase().endsWith('.py')
   const isText = isTextFile(path)
+
+  // webview 预览需要沙盒内文件的绝对路径（file:// 加载，相对资源正常解析）
+  useEffect(() => {
+    if (!(renderPreview && isHtml)) return
+    let cancelled = false
+    api
+      .fileAbsPath(projectId, path)
+      .then(({ abs }) => {
+        if (!cancelled) setHtmlAbs(abs)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [renderPreview, isHtml, projectId, path])
   const html = useMemoMd(content)
+  const setContentAndDirty = (v: string): void => {
+    setContent(v)
+    setDirty(true)
+    setFileDraft(path, v)
+  }
 
   useEffect(() => {
     if (loaded) return // draft already present — keep the unsaved edits
     setError(null)
-    setPreview(false)
+    setMdMode('code')
     if (!isText) {
       setContent('（二进制文件，无法编辑）')
       setLoaded(true)
@@ -324,6 +355,9 @@ function FileEditorTab({
   }, [projectId, path, isText, loaded])
 
   async function handleSave(): Promise<void> {
+    // 保护：未加载完成或没有任何修改时绝不写盘——
+    // 否则打开文件瞬间按 Ctrl+S 会用空/旧内容覆盖磁盘文件（严重数据丢失）
+    if (!loaded || !dirty) return
     try {
       await api.writeFile(projectId, path, content)
       setDirty(false)
@@ -360,12 +394,20 @@ function FileEditorTab({
   return (
     <div className="wb-file">
       <div className="wb-file-head">
-        <span className="wb-file-path">{path}</span>
+        <span className="wb-file-path">
+          {path}
+          {dirty && <span className="wb-dirty-dot" title="有未保存的修改，保存将写入磁盘" />}
+        </span>
         <div className="row gap">
-          {isMd && (
-            <button className="btn small ghost" onClick={() => setPreview((v) => !v)}>
-              <IconEye size={13} />
-              {preview ? '编辑' : '双栏预览'}
+          {isMd && <ModeSwitch mode={mdMode} setMode={setMdMode} />}
+          {(isHtml || isSvg) && (
+            <button
+              className="btn small ghost"
+              onClick={() => setRenderPreview((v) => !v)}
+              title={isHtml ? '在浏览器视图中预览页面' : '预览渲染后的图形'}
+            >
+              <IconEye size={12} />
+              {renderPreview ? '编辑' : isHtml ? '预览页面' : '渲染预览'}
             </button>
           )}
           {isPy && (
@@ -380,18 +422,37 @@ function FileEditorTab({
         </div>
       </div>
       {error && <div className="error-box">{error}</div>}
-      {isMd && preview ? (
+      {isMd && mdMode === 'split' ? (
         <div className="wb-md-split">
           <div className="wb-code-wrap">
-            <CodeEditor path={path} value={content} onChange={(v) => { setContent(v); setDirty(true); setFileDraft(path, v) }} />
+            <CodeEditor path={path} value={content} onChange={setContentAndDirty} />
           </div>
           <div className="wb-md-divider" />
           <div className="wb-md-preview" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
+      ) : isMd && mdMode === 'preview' ? (
+        <MdWysiwyg value={content} onChange={setContentAndDirty} exportName={path.replace(/\.md$/i, '') + '.docx'} />
+      ) : renderPreview && isHtml ? (
+        htmlAbs ? (
+          createElement('webview', {
+            className: 'wb-media-html',
+            src: `file:///${htmlAbs.replace(/\\/g, '/')}`,
+            title: path
+          })
+        ) : (
+          <div className="wb-empty">
+            <div className="spinner" />
+            <span className="muted small">正在加载页面…</span>
+          </div>
+        )
+      ) : renderPreview && isSvg ? (
+        <div className="wb-media">
+          <img src={rawFileUrl(projectId, path)} alt={path} />
+        </div>
       ) : (
         <div className="wb-code-wrap">
           {isText ? (
-            <CodeEditor path={path} value={content} onChange={(v) => { setContent(v); setDirty(true); setFileDraft(path, v) }} />
+            <CodeEditor path={path} value={content} onChange={setContentAndDirty} />
           ) : (
             <MediaPreview path={path} projectId={projectId} />
           )}
@@ -401,7 +462,7 @@ function FileEditorTab({
   )
 }
 
-/* ---------- media preview (image / video / audio / pdf) ---------- */
+/* ---------- media preview (image / video / audio / pdf / office) ---------- */
 
 function MediaPreview({ path, projectId }: { path: string; projectId: string }): JSX.Element {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -438,7 +499,179 @@ function MediaPreview({ path, projectId }: { path: string; projectId: string }):
       />
     )
   }
+  if (ext === 'pptx' || ext === 'docx' || ext === 'xlsx') {
+    return <OfficePreview path={path} projectId={projectId} />
+  }
   return <div className="wb-empty">暂不支持预览该文件类型（{ext}）</div>
+}
+
+// Office 文件预览：pptx（翻页）/ docx（段落）/ xlsx（表格）
+function OfficePreview({ path, projectId }: { path: string; projectId: string }): JSX.Element {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.officePreview>> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [index, setIndex] = useState(0)
+  const [sheet, setSheet] = useState(0)
+  // LibreOffice 高保真渲染（pptx 等）：检测可用性 + PDF 模式
+  const isPptx = /\.pptx$/i.test(path)
+  const [hiFiAvailable, setHiFiAvailable] = useState(false)
+  const [pdfPath, setPdfPath] = useState<string | null>(null)
+  const [converting, setConverting] = useState(false)
+
+  useEffect(() => {
+    if (!isPptx) return
+    let cancelled = false
+    api
+      .renderStatus()
+      .then((s) => {
+        if (!cancelled) setHiFiAvailable(s.powerpoint || s.libreoffice)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isPptx])
+
+  async function convertPdf(): Promise<void> {
+    setConverting(true)
+    setError(null)
+    try {
+      const r = await api.convertToPdf(path, projectId)
+      setPdfPath(r.pdfPath)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setConverting(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setData(null)
+    setError(null)
+    setIndex(0)
+    setSheet(0)
+    api
+      .officePreview(path, { projectId, detailed: true })
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [path, projectId])
+
+  if (error) return <div className="error-box" style={{ margin: 12 }}>{error}</div>
+  if (!data) {
+    return (
+      <div className="wb-empty">
+        <div className="spinner" />
+        <span className="muted small">正在解析 {path.split('/').pop()}…</span>
+      </div>
+    )
+  }
+
+  if (data.type === 'pptx' && data.slides) {
+    const slides = data.slides as (string[] | SlideDetail)[]
+    const slide = slides[index]
+    return (
+      <div className="office-preview">
+        <div className="office-toolbar">
+          <span className="muted small">
+            {data.name} · {pdfPath ? 'PDF 渲染' : `${index + 1} / ${slides.length}`}
+          </span>
+          <div className="row gap">
+            {isPptx && hiFiAvailable && (
+              <>
+                {!pdfPath ? (
+                  <button className="btn small ghost" onClick={convertPdf} disabled={converting}>
+                    {converting ? '转换中…' : '高保真渲染'}
+                  </button>
+                ) : (
+                  <button className="btn small ghost" onClick={() => setPdfPath(null)}>
+                    版面预览
+                  </button>
+                )}
+              </>
+            )}
+            {!pdfPath && (
+              <>
+                <button className="btn small ghost" disabled={index === 0} onClick={() => setIndex((i) => Math.max(i - 1, 0))}>
+                  ← 上一页
+                </button>
+                <button
+                  className="btn small ghost"
+                  disabled={index >= slides.length - 1}
+                  onClick={() => setIndex((i) => Math.min(i + 1, slides.length - 1))}
+                >
+                  下一页 →
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {pdfPath ? (
+          <iframe className="wb-media-pdf" src={rawFileUrl(projectId, pdfPath)} title={data.name} />
+        ) : (
+          <div className="office-slide">
+            {data.detailed && slide && !Array.isArray(slide) ? (
+              <SlideCanvas slide={slide} />
+            ) : Array.isArray(slide) && slide.length ? (
+              slide.map((line, i) => <p key={i}>{line}</p>)
+            ) : (
+              <span className="muted">（本页无文本内容）</span>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (data.type === 'docx' && data.html) {
+    return (
+      <div className="office-preview">
+        <div className="office-toolbar">
+          <span className="muted small">{data.name} · Word 文档</span>
+        </div>
+        <div className="office-docx" dangerouslySetInnerHTML={{ __html: data.html }} />
+      </div>
+    )
+  }
+
+  if (data.type === 'xlsx' && data.sheets) {
+    const active = data.sheets[sheet]
+    return (
+      <div className="office-preview">
+        <div className="office-toolbar">
+          <span className="muted small">{data.name}</span>
+          <div className="row gap">
+            {data.sheets.map((s, i) => (
+              <button key={s.name} className={`btn small ghost${i === sheet ? ' on' : ''}`} onClick={() => setSheet(i)}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="office-xlsx">
+          <table>
+            <tbody>
+              {active.rows.map((row, i) => (
+                <tr key={i}>
+                  {row.map((cell, j) => (
+                    <td key={j}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  return <div className="wb-empty">暂不支持预览该文件</div>
 }
 
 // memoized markdown render

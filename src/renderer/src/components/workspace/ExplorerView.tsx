@@ -4,7 +4,8 @@ import { api } from '../../lib/api'
 import { useWorkspaceStore, tabIdFor } from '../../store/workspace'
 import ContextMenu from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
-import { IconChevronDown, IconCopy, IconDoc, IconFolder, IconPlay, IconPlus, IconRefresh, IconTrash } from '../Icon'
+import { IconChevronDown, IconCopy, IconFolder, IconPlay, IconPlus, IconRefresh, IconTrash } from '../Icon'
+import FileTypeIcon from '../FileTypeIcon'
 import type { FileTreeNode } from '@shared/types'
 
 // 资源管理器：项目沙盒文件树（右键管理 + 自动刷新），点击文件在工作台打开
@@ -21,6 +22,7 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
   } = useWorkspaceStore()
   const [tree, setTree] = useState<FileTreeNode[]>([])
   const [newName, setNewName] = useState('')
+  const [newIsDir, setNewIsDir] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number; node: FileTreeNode | null } | null>(null)
   const [renaming, setRenaming] = useState<FileTreeNode | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -66,8 +68,15 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
   async function handleCreate(e: FormEvent): Promise<void> {
     e.preventDefault()
     if (!newName.trim()) return
-    await api.writeFile(projectId, newName.trim(), '')
+    if (newIsDir) {
+      await api.createDir(projectId, newName.trim())
+    } else {
+      // 同名文件已存在时自动加后缀，绝不覆盖已有文件（防止数据丢失）
+      const dest = await uniqueDest(newName.trim())
+      await api.writeFile(projectId, dest, '')
+    }
     setNewName('')
+    setNewIsDir(false)
     load()
   }
 
@@ -177,6 +186,14 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
         if (node.name.toLowerCase().endsWith('.py')) {
           items.push({ label: '运行', action: () => handleRun(node) })
         }
+        if (/\.(pptx|docx|pdf|txt|md)$/i.test(node.name)) {
+          items.push({
+            label: '在汇报助手中打开',
+            action: () => {
+              window.api.openPresentAssistWithFile({ projectId, path: node.path })
+            }
+          })
+        }
         items.push({
           label: '发送到会话',
           action: () => handleSendToSession(node)
@@ -186,20 +203,18 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
           label: '新建文件',
           action: () => {
             setNewName(`${node.path ? node.path + '/' : ''}untitled.py`)
+            setNewIsDir(false)
           }
         })
         items.push({
           label: '新建文件夹',
-          action: async () => {
-            const name = window.prompt('文件夹名称')
-            if (name) {
-              await api.createDir(projectId, `${node.path ? node.path + '/' : ''}${name}`)
-              toggleDir(node.path)
-              load()
-            }
+          action: () => {
+            setNewName(`${node.path ? node.path + '/' : ''}新文件夹`)
+            setNewIsDir(true)
           }
         })
       }
+      items.push({ label: '在文件资源管理器中打开', action: () => api.openExternal(projectId, node.path) })
       items.push({ label: '复制', action: () => setClipboard({ path: node.path, cut: false }) })
       items.push({ label: '剪切', action: () => setClipboard({ path: node.path, cut: true }) })
       if (clipboard) {
@@ -225,16 +240,16 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
     } else {
       items.push({
         label: '新建文件',
-        action: () => setNewName('untitled.py')
+        action: () => {
+          setNewName('untitled.py')
+          setNewIsDir(false)
+        }
       })
       items.push({
         label: '新建文件夹',
-        action: async () => {
-          const name = window.prompt('文件夹名称')
-          if (name) {
-            await api.createDir(projectId, name)
-            load()
-          }
+        action: () => {
+          setNewName('新文件夹')
+          setNewIsDir(true)
         }
       })
       if (clipboard) {
@@ -480,7 +495,7 @@ function TreeNode({
         ) : (
           <>
             <span className="tree-arrow-spacer" />
-            <IconDoc size={13} />
+            <FileTypeIcon path={node.path} size={13} />
           </>
         )}
         {isRenaming ? (

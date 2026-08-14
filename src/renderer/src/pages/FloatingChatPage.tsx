@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
+import { marked } from 'marked'
 import { api } from '../lib/api'
-import { IconClose, IconSave, IconSend, IconStop } from '../components/Icon'
+import { IconClose, IconSave, IconSend, IconStop, IconTrash } from '../components/Icon'
+import appIcon from '../assets/app-icon.png'
 
 interface LocalMsg {
   role: 'user' | 'assistant'
@@ -10,9 +12,21 @@ interface LocalMsg {
 
 const STORAGE_KEY = 'oap-floating-chat-history'
 
-// 系统级悬浮窗（重构版）：纯对话 + 存入随记。
+// Markdown 渲染的气泡文本（AI 回复支持格式）
+function MdText({ text }: { text: string }): JSX.Element {
+  const html = useMemo(() => {
+    try {
+      return marked.parse(text, { async: false, breaks: true }) as string
+    } catch {
+      return text
+    }
+  }, [text])
+  return <div className="bubble-text md" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+// 系统级悬浮窗：独立对话框（不加载应用壳），纯对话 + 可导入知识库（随记）。
 // 修复点：注入监听器只注册一次（用 ref 持有最新 send，避免闭包竞态），
-// 发送串行化（上一轮未完成时不接受新发送）。
+// 发送串行化（上一轮未完成时不接受新发送），AI 回复支持 Markdown 渲染。
 export default function FloatingChatPage(): JSX.Element {
   const [messages, setMessages] = useState<LocalMsg[]>(() => {
     try {
@@ -32,7 +46,7 @@ export default function FloatingChatPage(): JSX.Element {
   const messagesRef = useRef<LocalMsg[]>(messages)
   messagesRef.current = messages
 
-  // 注入监听器：注册一次，通过 ref 读取最新状态
+  // 注入监听器（主窗口选中文字 → 发送到悬浮窗）：注册一次，通过 ref 读取最新状态
   useEffect(() => {
     const handler = (text: string): void => {
       if (text?.trim() && !sendingRef.current) {
@@ -123,7 +137,8 @@ export default function FloatingChatPage(): JSX.Element {
     void sendNow(content)
   }
 
-  async function handleSave(): Promise<void> {
+  // 导入知识库：整段对话沉淀为一条随记（知识库第三类）
+  async function handleSaveToKb(): Promise<void> {
     if (messages.length === 0) return
     const content = messages
       .map((m) => `【${m.role === 'user' ? '用户' : 'AI'}】\n${m.content}`)
@@ -132,7 +147,7 @@ export default function FloatingChatPage(): JSX.Element {
     try {
       await api.createScratch({
         content,
-        summary: firstUser ? firstUser.content.slice(0, 60) : ''
+        summary: `悬浮窗对话 · ${firstUser ? firstUser.content.slice(0, 40) : new Date().toLocaleString('zh-CN')}`
       })
       setSaved(true)
     } catch (err) {
@@ -140,18 +155,37 @@ export default function FloatingChatPage(): JSX.Element {
     }
   }
 
+  function handleClear(): void {
+    if (!window.confirm('清空当前对话历史？')) return
+    setMessages([])
+    setStreaming('')
+    setSaved(false)
+    localStorage.removeItem(STORAGE_KEY)
+  }
+
   return (
     <div className="floating-chat">
       <div className="floating-head">
-        <span>临时对话</span>
-        <div className="row gap">
+        <img className="pa-logo" src={appIcon} alt="" />
+        <span className="floating-title">临时对话</span>
+        <div className="row gap floating-actions">
           <button
-            className="icon-btn"
-            title="存入随记"
-            onClick={handleSave}
+            className="btn small ghost"
+            title="导入知识库（存入随记）"
+            onClick={handleSaveToKb}
             disabled={messages.length === 0}
           >
             <IconSave size={12} />
+            保存
+          </button>
+          <button
+            className="btn small ghost"
+            title="清空对话"
+            onClick={handleClear}
+            disabled={messages.length === 0}
+          >
+            <IconTrash size={12} />
+            清空
           </button>
           <button className="icon-btn" title="关闭" onClick={() => window.api.closeFloatingChat()}>
             <IconClose size={13} />
@@ -160,19 +194,42 @@ export default function FloatingChatPage(): JSX.Element {
       </div>
       <div className="floating-list" ref={listRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>
-            <div className="bubble-text">{m.content}</div>
+          <div key={i} className={`pa-msg ${m.role}`}>
+            {m.role === 'assistant' && <img className="pa-avatar" src={appIcon} alt="" />}
+            <div className="pa-msg-body">
+              {m.role === 'assistant' ? (
+                <div className="pa-msg-bubble">
+                  <MdText text={m.content} />
+                </div>
+              ) : (
+                <div className="pa-msg-bubble">{m.content}</div>
+              )}
+            </div>
           </div>
         ))}
-        {streaming && <div className="bubble assistant streaming">{streaming}</div>}
+        {streaming && (
+          <div className="pa-msg assistant">
+            <img className="pa-avatar" src={appIcon} alt="" />
+            <div className="pa-msg-body">
+              <div className="pa-msg-bubble streaming">
+                <MdText text={streaming} />
+                <span className="pa-cursor" />
+              </div>
+            </div>
+          </div>
+        )}
         {sending && !streaming && <span className="typing">思考中</span>}
         {messages.length === 0 && !sending && (
-          <p className="muted small" style={{ textAlign: 'center' }}>
-            输入问题开始临时对话
-          </p>
+          <div className="floating-empty">
+            <img className="pa-empty-logo" src={appIcon} alt="" />
+            <p>输入问题开始临时对话</p>
+            <p className="muted small">完成后的对话可一键导入知识库（随记）</p>
+          </div>
         )}
       </div>
-      {saved && <span className="muted small" style={{ padding: '0 12px' }}>已存入随记</span>}
+      {saved && (
+        <div className="floating-saved">✓ 已导入知识库（设置 → 知识库 → 随记 可查看）</div>
+      )}
       {error && <div className="error-box" style={{ margin: '0 10px' }}>{error}</div>}
       <form className="floating-composer" onSubmit={handleSend}>
         <input
@@ -187,7 +244,7 @@ export default function FloatingChatPage(): JSX.Element {
             <IconStop size={13} />
           </button>
         ) : (
-          <button type="submit" className="btn primary" disabled={!input.trim()}>
+          <button type="submit" className="btn primary pa-send" disabled={!input.trim()}>
             <IconSend size={13} />
           </button>
         )}

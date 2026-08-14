@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { shell } from 'electron'
 import {
   readdirSync,
   readFileSync,
@@ -153,6 +154,28 @@ filesRouter.post('/projects/:id/dirs', (req, res) => {
   }
   mkdirSync(resolveInSandbox(req.params.id, rel), { recursive: true })
   res.status(201).json({ ok: true })
+})
+
+// Open a file/folder in the system file explorer (Windows Explorer)
+filesRouter.post('/projects/:id/open-external', (req, res) => {
+  assertProject(req.params.id)
+  const rel = String(req.body?.path ?? '')
+  const abs = resolveInSandbox(req.params.id, rel || '.')
+  shell.openPath(abs).then((err) => {
+    if (err) res.status(500).json({ error: `无法打开：${err}` })
+    else res.json({ ok: true })
+  })
+})
+
+// Resolve a sandbox-relative path to an absolute path (for webview preview etc.)
+filesRouter.post('/projects/:id/file/abs', (req, res) => {
+  assertProject(req.params.id)
+  const rel = String(req.body?.path ?? '')
+  if (!rel) {
+    res.status(400).json({ error: '缺少文件路径' })
+    return
+  }
+  res.json({ abs: resolveInSandbox(req.params.id, rel) })
 })
 
 // Binary file streaming (images / video / audio / pdf preview)

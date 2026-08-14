@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { applyPersonalization } from '../lib/personalize'
 import { useProjectsStore } from '../store/projects'
 import { useWorkspaceStore } from '../store/workspace'
 import TitleBar, { buildMenus } from './TitleBar'
@@ -10,13 +11,16 @@ import GlobalSearch from './GlobalSearch'
 import GlobalChatPopup from './GlobalChatPopup'
 import TempChatPopup from './TempChatPopup'
 import AboutModal from './AboutModal'
+import UpdateModal from './UpdateModal'
 import {
   IconBook,
   IconChat,
   IconFolder,
   IconLibrary,
   IconMoon,
+  IconPalette,
   IconPlus,
+  IconPresent,
   IconProject,
   IconSearch,
   IconSettings,
@@ -37,6 +41,7 @@ export default function Layout(): JSX.Element {
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
   const [pythonEnv, setPythonEnv] = useState('系统 Python')
   const [totalCost, setTotalCost] = useState<number | null>(null)
+  const [appVersion, setAppVersion] = useState('')
   const {
     sidebarView,
     setSidebarView,
@@ -56,7 +61,9 @@ export default function Layout(): JSX.Element {
     customAccent,
     setTheme,
     setAccent,
-    setCustomAccent
+    setCustomAccent,
+    setEditorFontFamily,
+    setEditorLineHeight
   } = useWorkspaceStore()
   const location = useLocation()
   const navigate = useNavigate()
@@ -84,7 +91,13 @@ export default function Layout(): JSX.Element {
         )
       })
       .catch(() => undefined)
-  }, [])
+    window.api.appVersion().then(setAppVersion).catch(() => undefined)
+    // 应用个性化偏好（主题/编辑器/背景图/侧栏色调）
+    api
+      .personalization()
+      .then((r) => applyPersonalization(r.values))
+      .catch(() => undefined)
+  }, [setFontSize, setEditorFontFamily, setEditorLineHeight, setWordWrap])
 
   useEffect(() => {
     document.documentElement.dataset['theme'] = theme
@@ -161,19 +174,14 @@ export default function Layout(): JSX.Element {
         navigate('/recommendations')
       }
     },
-    onCheckUpdate: () => {
-      api
-        .checkUpdate()
-        .then((u) => {
-          if (u.updateAvailable && u.latest) {
-            window.alert(
-              `发现新版本 v${u.latest}（当前 v${u.current}）。\n\n下载地址：\n${u.downloadPages.join('\n')}`
-            )
-          } else {
-            window.alert(`当前已是最新版本 v${u.current}`)
-          }
-        })
-        .catch(() => window.alert('检查更新失败，请检查网络'))
+    onCheckUpdate: () => setUpdateOpen(true),
+    onHelp: () => navigate('/help'),
+    onOpenSettings: () => {
+      if (projectId) {
+        openTab({ id: 'settings:main', kind: 'settings', title: '系统设置', refId: 'main' })
+      } else {
+        navigate('/settings')
+      }
     },
     onExportProject: () => {
       if (!projectId) return
@@ -212,24 +220,16 @@ export default function Layout(): JSX.Element {
   const [chatPopupOpen, setChatPopupOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [tempChatOpen, setTempChatOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
 
   // 托盘菜单"开始临时对话"
   useEffect(() => {
     window.api.onTempChat(() => setTempChatOpen(true))
   }, [])
 
-  // 启动时检查新版本
+  // 启动时检查新版本：有新版才弹窗（auto 模式下无新版自动关闭）
   useEffect(() => {
-    api
-      .checkUpdate()
-      .then((u) => {
-        if (u.updateAvailable && u.latest) {
-          window.alert(
-            `发现新版本 v${u.latest}（当前 v${u.current}）。\n\n下载地址：\n${u.downloadPages.join('\n')}`
-          )
-        }
-      })
-      .catch(() => undefined)
+    setUpdateOpen(true)
   }, [])
 
   return (
@@ -325,17 +325,42 @@ export default function Layout(): JSX.Element {
           </div>
           <div className="activity-group">
             <button
+              className="activity-btn"
+              title="汇报助手（悬浮窗）"
+              onClick={() => window.api.openPresentAssist()}
+            >
+              <IconPresent size={19} />
+            </button>
+            <button
               className={`activity-btn${location.pathname === '/settings' ? ' active' : ''}`}
-              title="设置"
+              title="系统设置"
               onClick={() => {
                 if (inProject) {
-                  openTab({ id: 'settings:main', kind: 'settings', title: '设置', refId: 'main' })
+                  openTab({ id: 'settings:main', kind: 'settings', title: '系统设置', refId: 'main' })
                 } else {
                   navigate('/settings')
                 }
               }}
             >
               <IconSettings size={19} />
+            </button>
+            <button
+              className={`activity-btn${location.pathname === '/settings/personal' ? ' active' : ''}`}
+              title="个性化设置"
+              onClick={() => {
+                if (inProject) {
+                  openTab({
+                    id: 'settings-personal:main',
+                    kind: 'settings-personal',
+                    title: '个性化设置',
+                    refId: 'main'
+                  })
+                } else {
+                  navigate('/settings/personal')
+                }
+              }}
+            >
+              <IconPalette size={19} />
             </button>
             <button className="activity-btn" title="切换主题" onClick={toggleTheme}>
               {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
@@ -406,7 +431,7 @@ export default function Layout(): JSX.Element {
               </div>
             )}
             <div className="sidebar-footer-row">
-              <span className="muted small">v{window.api.appVersion()}</span>
+              <span className="muted small">v{appVersion}</span>
             </div>
           </footer>
           </aside>}
@@ -433,6 +458,7 @@ export default function Layout(): JSX.Element {
       )}
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {tempChatOpen && <TempChatPopup onClose={() => setTempChatOpen(false)} />}
+      {updateOpen && <UpdateModal auto onClose={() => setUpdateOpen(false)} />}
     </div>
   )
 }

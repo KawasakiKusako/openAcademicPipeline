@@ -202,3 +202,64 @@ export interface AppSettings {
   recKeywords: string[]
   recCategories: string[] // arXiv 分类（如 cs.CV, cs.LG），空 = 不限
 }
+
+// ===== Office 预览 =====
+
+export interface SlideText {
+  x: number // emu
+  y: number
+  cx: number
+  cy: number
+  text: string
+  size: number // pt
+}
+
+export interface SlideImage {
+  x: number
+  y: number
+  cx: number
+  cy: number
+  src: string // data URI
+}
+
+export interface SlideDetail {
+  texts: SlideText[]
+  images: SlideImage[]
+}
+
+// ===== 个性化设置（schema 驱动的通用注册接口） =====
+// 个性化设置与系统设置分开维护：系统设置走强类型 AppSettings，
+// 个性化设置通过 PersonalizationField 声明式注册（内置或第三方 JSON 文件），
+// 渲染端按 schema 自动生成表单，读写走通用 API（见 server/personalization.ts）。
+
+export type PersonalizationFieldType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'boolean'
+  | 'select'
+  | 'color'
+  | 'image'
+  | 'tags'
+
+export interface PersonalizationFieldOption {
+  value: string
+  label: string
+}
+
+export interface PersonalizationField {
+  key: string
+  label: string
+  type: PersonalizationFieldType
+  group: string // 分组标题（如 外观 / 内容偏好）
+  description?: string
+  defaultValue: string | number | boolean | string[]
+  options?: PersonalizationFieldOption[] // select 的选项
+  placeholder?: string
+  rows?: number // textarea / tags(line) 的行数
+  tagsMode?: 'comma' | 'line' // tags：逗号输入 vs 每行一条（textarea）
+  showWhen?: { key: string; equals: string } // 条件显示（如 accent=custom 才显示自定义色）
+  min?: number
+  max?: number
+  step?: number // number 的步进
+}

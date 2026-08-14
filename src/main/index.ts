@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
+import { app, dialog, ipcMain, shell, BrowserWindow, Menu, Tray, nativeImage, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -22,7 +22,8 @@ function createWindow(): void {
     icon, // taskbar + window icon (all platforms, uses resources/icon.png)
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      webviewTag: true // HTML 文件预览用（webview 不继承宿主 CSP）
     }
   })
 
@@ -53,6 +54,24 @@ ipcMain.handle('dialog:selectDirectory', async (): Promise<string | null> => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
+// File picker with filters (e.g. presentation mode: .pptx / .html); multi for batch import
+ipcMain.handle(
+  'dialog:selectFile',
+  async (
+    _event,
+    filters: { name: string; extensions: string[] }[],
+    multi?: boolean
+  ): Promise<string | string[] | null> => {
+    const result = await dialog.showOpenDialog({
+      title: '选择文件',
+      properties: multi ? ['openFile', 'multiSelections'] : ['openFile'],
+      filters: Array.isArray(filters) && filters.length > 0 ? filters : undefined
+    })
+    if (result.canceled) return null
+    return multi ? result.filePaths : (result.filePaths[0] ?? null)
+  }
+)
+
 // Custom window controls (frameless window)
 ipcMain.on('window:minimize', (event) => {
   BrowserWindow.fromWebContents(event.sender)?.minimize()
@@ -72,6 +91,82 @@ ipcMain.handle('shell:openPath', async (_event, target: string) => {
   if (typeof target !== 'string' || !target) return false
   const err = await shell.openPath(target)
   return !err // empty string means success
+})
+
+// App version for the UI. Never rely on npm_package_version (unset in packaged builds).
+ipcMain.handle('app:getVersion', () => app.getVersion())
+
+// ===== 演讲者视图：观众窗口（第二显示器全屏放映） =====
+let audienceWindow: BrowserWindow | null = null
+let lastAudienceHtml = ''
+
+ipcMain.handle('screen:displays', () => {
+  const displays = screen.getAllDisplays()
+  const primary = screen.getPrimaryDisplay()
+  return displays.map((d) => ({
+    id: d.id,
+    label: d.label || (d.id === primary.id ? '主显示器' : `显示器 ${d.id}`),
+    bounds: { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height },
+    primary: d.id === primary.id
+  }))
+})
+
+ipcMain.handle('present:audience-open', (_e, displayId: number) => {
+  const display = screen.getAllDisplays().find((d) => d.id === Number(displayId))
+  if (!display) return false
+  const bounds = display.bounds
+  if (!audienceWindow || audienceWindow.isDestroyed()) {
+    audienceWindow = new BrowserWindow({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      frame: false,
+      fullscreen: true,
+      autoHideMenuBar: true,
+      backgroundColor: '#000000',
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: false
+      }
+    })
+    audienceWindow.on('closed', () => {
+      audienceWindow = null
+    })
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      audienceWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/audience`)
+    } else {
+      audienceWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/audience' })
+    }
+  } else {
+    audienceWindow.setBounds(bounds)
+    audienceWindow.setFullScreen(true)
+    audienceWindow.show()
+  }
+  return true
+})
+
+ipcMain.on('present:audience-render', (_e, html: string) => {
+  lastAudienceHtml = String(html)
+  if (audienceWindow && !audienceWindow.isDestroyed()) {
+    audienceWindow.webContents.send('audience:render', lastAudienceHtml)
+  }
+})
+
+// 荧光笔增量同步：只发送小的 SVG 标注层（避免高频传输整页 HTML 卡死）
+ipcMain.on('present:audience-marker', (_e, svg: string) => {
+  if (audienceWindow && !audienceWindow.isDestroyed()) {
+    audienceWindow.webContents.send('audience:marker', String(svg))
+  }
+})
+
+ipcMain.handle('audience:get-last', () => lastAudienceHtml)
+
+ipcMain.handle('present:audience-close', () => {
+  audienceWindow?.close()
+  audienceWindow = null
+  lastAudienceHtml = ''
+  return true
 })
 
 // System tray + global search (floating panel triggered from the tray)
@@ -97,6 +192,7 @@ function openFloatingChat(text?: string): void {
     skipTaskbar: true, // 系统级 widget：不占任务栏
     resizable: true,
     transparent: false,
+    icon, // 与主窗口图标统一
     title: 'OAP 临时对话',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -117,6 +213,64 @@ function openFloatingChat(text?: string): void {
     if (text) floatingWindow?.webContents.send('floating-chat:inject', text)
   })
 }
+
+// 汇报助手悬浮窗：读取 PPT 内容 + 原生 API 生成汇报讲稿
+let presentAssistWindow: BrowserWindow | null = null
+
+function openPresentAssist(): void {
+  if (presentAssistWindow && !presentAssistWindow.isDestroyed()) {
+    presentAssistWindow.show()
+    presentAssistWindow.focus()
+    return
+  }
+  presentAssistWindow = new BrowserWindow({
+    width: 960,
+    height: 640,
+    minWidth: 560,
+    minHeight: 420,
+    frame: false,
+    autoHideMenuBar: true,
+    title: 'OAP 汇报助手',
+    icon, // 任务栏/窗口图标与主窗口统一
+    backgroundColor: '#1e1e1e',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+  // 最高置顶级别：放映/全屏时也不被遮挡
+  presentAssistWindow.setAlwaysOnTop(true, 'screen-saver')
+  presentAssistWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  presentAssistWindow.on('closed', () => {
+    presentAssistWindow = null
+  })
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    presentAssistWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/present-assist`)
+  } else {
+    presentAssistWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/present-assist' })
+  }
+}
+
+ipcMain.on('present-assist:open', () => openPresentAssist())
+ipcMain.on('present-assist:close', () => presentAssistWindow?.close())
+
+// 打开悬浮窗并导入文件（资源管理器右键"在汇报助手中打开"）
+ipcMain.on(
+  'present-assist:open-with-file',
+  (_e, payload: { path: string; projectId?: string }) => {
+    openPresentAssist()
+    const send = (): void => {
+      if (presentAssistWindow && !presentAssistWindow.isDestroyed()) {
+        presentAssistWindow.webContents.send('present-assist:import-file', payload)
+      }
+    }
+    if (presentAssistWindow?.webContents.isLoading()) {
+      presentAssistWindow.webContents.once('did-finish-load', send)
+    } else {
+      setTimeout(send, 200)
+    }
+  }
+)
 
 // 主进程转发：主窗口"发送到悬浮窗"
 ipcMain.on('floating-chat:open', (_e, text?: string) => {
@@ -148,6 +302,10 @@ function setupTray(): void {
       {
         label: '开始临时对话（悬浮窗）',
         click: () => openFloatingChat()
+      },
+      {
+        label: '打开汇报助手',
+        click: () => openPresentAssist()
       },
       { type: 'separator' },
       { label: '退出', click: () => app.quit() }

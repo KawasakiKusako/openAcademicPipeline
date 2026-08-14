@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { useWorkspaceStore } from '../store/workspace'
 import { IconBack, IconRefresh } from '../components/Icon'
-import type { AccentColor, AppSettings, EffortLevel, PythonEnv, Theme } from '@shared/types'
+import type { AppSettings, EffortLevel, PythonEnv } from '@shared/types'
 
 interface CcProvider {
   id: string
@@ -35,18 +34,9 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
   const [defaultEngine, setDefaultEngine] = useState<'cli' | 'api'>('cli')
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState<EffortLevel>('high')
-  const [theme, setTheme] = useState<Theme>('dark')
-  const [accent, setAccent] = useState<AccentColor>('blue')
-  const [customAccent, setCustomAccent] = useState('#3794ff')
-  const setThemeStore = useWorkspaceStore((s) => s.setTheme)
-  const setAccentStore = useWorkspaceStore((s) => s.setAccent)
-  const setCustomAccentStore = useWorkspaceStore((s) => s.setCustomAccent)
   const [pythonEnv, setPythonEnv] = useState<PythonEnv>({ type: null, value: '' })
   const [condaPath, setCondaPath] = useState('')
   const [skillsPath, setSkillsPath] = useState('')
-  const [rssFeeds, setRssFeeds] = useState('')
-  const [recKeywords, setRecKeywords] = useState('')
-  const [recCategories, setRecCategories] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [clearApiKey, setClearApiKey] = useState(false)
@@ -58,6 +48,8 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
   const [refreshing, setRefreshing] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+  const [clearResult, setClearResult] = useState<string | null>(null)
 
   async function loadProviders(): Promise<void> {
     setRefreshing(true)
@@ -78,16 +70,10 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
         setDefaultEngine(s.defaultEngine)
         setModel(s.model)
         setBaseUrl(s.baseUrl)
-        setTheme(s.theme)
-        setAccent(s.accent)
-        setCustomAccent(s.customAccent)
         setEffort(s.effort)
         setPythonEnv(s.pythonEnv)
         setCondaPath(s.pythonEnv.condaPath ?? '')
         setSkillsPath(s.skillsPath)
-        setRssFeeds((s.rssFeeds ?? []).join('\n'))
-        setRecKeywords((s.recKeywords ?? []).join(', '))
-        setRecCategories((s.recCategories ?? []).join(', '))
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
     loadProviders()
@@ -108,9 +94,6 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
       try {
         const updated = await api.updateSettings(patch)
         setSettings(updated)
-        setThemeStore(updated.theme)
-        setAccentStore(updated.accent)
-        setCustomAccentStore(updated.customAccent)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       } catch (err) {
@@ -150,21 +133,11 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
         clearApiKey: clearApiKey || undefined,
         model: model.trim(),
         baseUrl: baseUrl.trim(),
-        theme,
-        accent,
-        customAccent,
         effort,
         pythonEnv: { ...pythonEnv, condaPath: condaPath.trim() || undefined },
-        skillsPath,
-        rssFeeds: rssFeeds.split(/\r?\n/).map((f) => f.trim()).filter(Boolean),
-        recKeywords: recKeywords.split(/[,，\r\n]/).map((k) => k.trim()).filter(Boolean),
-        recCategories: recCategories.split(/[,，\r\n]/).map((c) => c.trim()).filter(Boolean)
+        skillsPath
       })
       setSettings(updated)
-      // apply appearance instantly
-      setThemeStore(updated.theme)
-      setAccentStore(updated.accent)
-      setCustomAccentStore(updated.customAccent)
       setApiKey('')
       setClearApiKey(false)
       setSaved(true)
@@ -193,7 +166,7 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
             返回
           </button>
         )}
-        <h2 style={{ marginTop: embedded ? 0 : 6 }}>设置</h2>
+        <h2 style={{ marginTop: embedded ? 0 : 6 }}>系统设置</h2>
       </header>
 
       <form className="form" onSubmit={handleSubmit}>
@@ -430,6 +403,40 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
           </label>
         </section>
 
+        {/* ③.5 缓存与存储 */}
+        <section className="form-section">
+          <h3>缓存与存储</h3>
+          <div className="row gap wrap">
+            <button
+              type="button"
+              className="btn small"
+              disabled={clearing}
+              onClick={async () => {
+                setClearing(true)
+                setClearResult(null)
+                try {
+                  const r = await api.clearCache()
+                  setClearResult(
+                    r.freedBytes > 0
+                      ? `✓ 已清除缓存（释放 ${(r.freedBytes / 1024 / 1024).toFixed(1)} MB）`
+                      : '✓ 已清除缓存'
+                  )
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err))
+                } finally {
+                  setClearing(false)
+                }
+              }}
+            >
+              {clearing ? '清理中…' : '清除缓存'}
+            </button>
+            <span className="muted small">
+              清除应用渲染缓存与 Office 转换缓存（_oap_preview），不影响项目数据与知识库
+            </span>
+          </div>
+          {clearResult && <div className="success-box">{clearResult}</div>}
+        </section>
+
         {/* ④ API 保底 */}
         <section className="form-section">
           <h3>API 直连（保底）</h3>
@@ -453,87 +460,6 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
             <span className="field-label">API Base URL</span>
             <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.anthropic.com" />
           </label>
-        </section>
-
-        {/* ④.5 推荐阅读 */}
-        <section className="form-section">
-          <h3>推荐阅读</h3>
-          <label className="field">
-            <span className="field-label">自定义关键词（逗号分隔，优先于文献库自动提取）</span>
-            <input value={recKeywords} onChange={(e) => setRecKeywords(e.target.value)} placeholder="如：remote sensing, vision transformer" />
-          </label>
-          <label className="field">
-            <span className="field-label">arXiv 分类（逗号分隔，如 cs.CV / cs.LG，留空不限）</span>
-            <input value={recCategories} onChange={(e) => setRecCategories(e.target.value)} placeholder="cs.CV, cs.LG" />
-          </label>
-          <label className="field">
-            <span className="field-label">RSS 订阅源（每行一个 URL）</span>
-            <textarea value={rssFeeds} onChange={(e) => setRssFeeds(e.target.value)} rows={3} placeholder={'https://example.com/feed.xml\nhttps://arxiv.org/rss/cs.CV'} />
-          </label>
-        </section>
-
-        {/* ⑤ 外观 */}
-        <section className="form-section">
-          <h3>外观</h3>
-          <div className="row gap wrap">
-            <label className="field">
-              <span className="field-label">主题</span>
-              <select
-                value={theme}
-                onChange={(e) => {
-                  setTheme(e.target.value as Theme)
-                  setThemeStore(e.target.value as Theme)
-                }}
-              >
-                <option value="dark">深色</option>
-                <option value="light">浅色</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">强调色</span>
-              <select
-                value={accent}
-                onChange={(e) => {
-                  setAccent(e.target.value as AccentColor)
-                  setAccentStore(e.target.value as AccentColor)
-                }}
-              >
-                <option value="blue">蓝色</option>
-                <option value="green">绿色</option>
-                <option value="purple">紫色</option>
-                <option value="orange">橙色</option>
-                <option value="custom">自定义…</option>
-              </select>
-            </label>
-            {accent === 'custom' && (
-              <label className="field">
-                <span className="field-label">自定义颜色</span>
-                <div className="row gap">
-                  <input
-                    type="color"
-                    value={customAccent}
-                    onChange={(e) => {
-                      setCustomAccent(e.target.value)
-                      setCustomAccentStore(e.target.value)
-                    }}
-                    style={{ width: 44, height: 32, padding: 0, border: '1px solid var(--border)', background: 'transparent' }}
-                  />
-                  <input
-                    value={customAccent}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-                        setCustomAccent(v)
-                        setCustomAccentStore(v)
-                      }
-                    }}
-                    style={{ width: 110 }}
-                  />
-                </div>
-              </label>
-            )}
-          </div>
-          <span className="muted small">主题与强调色即时生效，点击「保存设置」持久化</span>
         </section>
 
         {error && <div className="error-box">{error}</div>}

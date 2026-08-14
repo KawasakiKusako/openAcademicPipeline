@@ -1,4 +1,4 @@
-import type { Message, ToolUse } from '../../shared/types'
+import type { EffortLevel, Message, ToolUse } from '../../shared/types'
 
 // Unified streaming interface for both engines (CLI and direct API fallback).
 
@@ -22,6 +22,8 @@ export interface RunChatOptions extends ChatEvents {
   resume?: string // claude CLI session id to resume (CLI engine)
   history?: Message[] // prior messages (API engine builds the conversation from these)
   signal?: AbortSignal
+  effort?: EffortLevel // per-request thinking strength override (API engine)
+  model?: string // per-request model override (API engine)
   onError: (err: Error) => void
 }
 

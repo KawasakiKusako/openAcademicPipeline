@@ -1,6 +1,6 @@
 {
   "name": "open-academic-pipeline",
-  "version": "0.5.1",
+  "version": "0.7.4",
   "description": "Open Academic Pipeline — an open-source academic research assistant desktop app",
   "main": "./out/main/index.js",
   "author": "Kawasaki",
@@ -21,6 +21,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
@@ -33,13 +34,22 @@
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/language-data": "^6.5.2",
+    "@uiw/codemirror-theme-vscode": "^4.25.11",
+    "@uiw/codemirror-themes": "^4.25.11",
     "@uiw/react-codemirror": "^4.25.11",
     "cors": "^2.8.6",
+    "docx": "^9.7.1",
     "express": "^5.2.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.1",
     "marked": "^18.0.9",
+    "pdf-parse": "^2.4.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.14"
   },
   "build": {
@@ -63,7 +73,7 @@
           ]
         }
       ],
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.ico"
     },
     "nsis": {
       "oneClick": false,
