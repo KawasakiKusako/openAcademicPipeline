@@ -178,6 +178,11 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 5. GitHub → Releases → 新建 tag `vX.Y.Z-beta` → 拖拽 exe 上传 → Publish
 6. 更新 `https://kawasakikusako.github.io/generalExp/kawasakiApps/oap.xml` 的 main/sub/dev（应用内"检查更新"读此文件）
 
+**发布记录**：
+- v0.7.4（2026-08-14）：已推送 main（9aebc21）；NSIS 安装包已生成；GitHub Release（tag v0.7.4-beta）与 oap.xml 更新由维护者手动完成（本机无 gh CLI/token）。注意：远程曾提交 "Delete HANDOFF.md"，rebase 时保留本地版本。
+
+**打包注意**：`win.icon` 必须指向 `resources/icon.ico`（见 §6 坑 #10j，png 转换会 wasm 内存失败）；提交前确认 `release/` 在 .gitignore 中且未被跟踪。
+
 **版本检查**：`server/routes/update.ts` 抓取 oap.xml 解析 `<main>/<sub>/<dev>` 与 package.json 比较；有新版弹窗提示下载页（GitHub + 官网）。
 
 ---
@@ -187,8 +192,9 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 - [ ] **打包后未实测**：dev 模式全链路验证过，安装包（NSIS）安装后的运行未完整回归
 - [ ] `window.confirm` 在部分 Electron 版本被弃用——建议逐步替换为应用内确认模态
 - [ ] 启动日志偶现 `DEP0190 DeprecationWarning: shell option true`（某处 spawn 带 shell:true + args 数组），排查来源并移除
-- [ ] 汇报助手磨砂透明（vibrancy acrylic）在部分 Win10 无效果（Win11 亚克力正常），可接受
 - [ ] 汇报助手/悬浮窗历史存 localStorage（各窗口独立），未做跨窗口同步
+- [ ] 汇报助手头部模型/强度下拉为自绘组件（原生 select 在 Windows 无背景），后续可抽成通用组件
+- [ ] `release/` 曾因 gitignore 时序被误提交 121MB 安装包（已 git rm --cached 修复）；新增生成物注意先确认忽略规则
 - [ ] 会话列表大数据量无虚拟滚动
 - [ ] 工作台选项卡不支持拖拽排序
 - [ ] 文献编辑（PUT）接口存在但 UI 未接编辑入口（仅删除）
