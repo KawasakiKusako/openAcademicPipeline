@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX, MouseEvent } from 'react'
 import { api } from '../../lib/api'
 import { useWorkspaceStore, tabIdFor } from '../../store/workspace'
@@ -156,11 +156,19 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
     load()
   }
 
+  const sendToSessionBusy = useRef(false)
+
   async function handleSendToSession(node: FileTreeNode): Promise<void> {
+    // 防抖：连续触发时复用同一会话，避免生成一堆重复"文件讨论"会话
+    if (sendToSessionBusy.current) return
+    sendToSessionBusy.current = true
     try {
-      // reuse the most recent idle session of the project; create one only if none exists
+      // 优先复用最近的空闲"文件讨论"会话；全部忙碌才新建
       const sessions = await api.sessions(projectId)
-      let session = sessions.find((s) => s.status !== 'running') ?? null
+      let session =
+        sessions.find((s) => s.status !== 'running' && (s.title === '文件讨论' || s.taskId === null)) ??
+        sessions.find((s) => s.status !== 'running') ??
+        null
       if (!session) {
         session = await api.createSession(projectId, { title: '文件讨论' })
       }
@@ -168,6 +176,8 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
       setPendingChatText(`请查看项目文件 ${node.path} 并简要说明它的作用。`)
     } catch {
       // ignore
+    } finally {
+      setTimeout(() => (sendToSessionBusy.current = false), 500)
     }
   }
 
@@ -212,6 +222,12 @@ export default function ExplorerView({ projectId }: { projectId: string }): JSX.
             setNewName(`${node.path ? node.path + '/' : ''}新文件夹`)
             setNewIsDir(true)
           }
+        })
+      }
+      if (node.type === 'file') {
+        items.push({
+          label: '用系统默认软件打开',
+          action: () => api.openExternal(projectId, node.path)
         })
       }
       items.push({ label: '在文件资源管理器中打开', action: () => api.openExternal(projectId, node.path) })

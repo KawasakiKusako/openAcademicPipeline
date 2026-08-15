@@ -237,7 +237,6 @@ export default function FloatingChatPage(): JSX.Element {
           onChange={(e) => setInput(e.target.value)}
           placeholder="临时提问…（Enter 发送）"
           spellCheck={false}
-          disabled={sending}
         />
         {sending ? (
           <button type="button" className="btn danger" onClick={() => abortRef.current?.abort()}>

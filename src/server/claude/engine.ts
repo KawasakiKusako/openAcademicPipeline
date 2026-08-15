@@ -24,6 +24,7 @@ export interface RunChatOptions extends ChatEvents {
   signal?: AbortSignal
   effort?: EffortLevel // per-request thinking strength override (API engine)
   model?: string // per-request model override (API engine)
+  onPermissionGranted?: (action: string, command: string) => void // 「总是允许」→ 写沙盒白名单
   onError: (err: Error) => void
 }
 

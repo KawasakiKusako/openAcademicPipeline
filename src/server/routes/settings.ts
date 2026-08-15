@@ -87,6 +87,22 @@ settingsRouter.put('/settings', (req, res) => {
   if (typeof body.skillsPath === 'string' && body.skillsPath.trim()) {
     setSetting('skillsPath', body.skillsPath.trim())
   }
+  if (typeof body.cliTrustedMode === 'boolean') {
+    setSetting('cliTrustedMode', body.cliTrustedMode)
+  }
+  // 内容偏好与昵称（推荐页内嵌编辑器保存走这里；个性化页则走 /settings/personalization）
+  if (Array.isArray(body.recKeywords)) {
+    setSetting('recKeywords', body.recKeywords.map(String))
+  }
+  if (Array.isArray(body.recCategories)) {
+    setSetting('recCategories', body.recCategories.map(String))
+  }
+  if (Array.isArray(body.rssFeeds)) {
+    setSetting('rssFeeds', body.rssFeeds.map(String))
+  }
+  if (typeof body.username === 'string' && body.username.trim()) {
+    setSetting('username', body.username.trim())
+  }
 
   res.json(getAppSettings())
 })

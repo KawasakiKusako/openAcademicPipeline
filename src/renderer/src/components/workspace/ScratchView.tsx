@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { api } from '../../lib/api'
-import { IconEdit, IconPlus, IconTrash } from '../Icon'
+import { IconClose, IconEdit, IconExpand, IconPlus, IconSave, IconTrash } from '../Icon'
 import { MdWysiwyg, ModeSwitch, markdownToHtml } from './MarkdownEditor'
 import CodeEditor from './CodeEditor'
 import type { MdMode } from './MarkdownEditor'
@@ -14,7 +14,7 @@ interface ScratchItem {
 }
 
 // 随记（知识库第三类）：临时对话的沉淀，快速想法记录（支持编辑/删除）
-export default function ScratchView(): JSX.Element {
+export default function ScratchView({ projectId }: { projectId?: string | null }): JSX.Element {
   const [items, setItems] = useState<ScratchItem[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -24,16 +24,19 @@ export default function ScratchView(): JSX.Element {
   const [editContent, setEditContent] = useState('')
   const [editSummary, setEditSummary] = useState('')
   const [mdMode, setMdMode] = useState<MdMode>('preview')
+  const [detailEdit, setDetailEdit] = useState<{ id: string; summary: string; content: string } | null>(null)
+  const [detailMode, setDetailMode] = useState<MdMode>('preview')
+  const [detailSaving, setDetailSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const mdHtml = useMemo(() => markdownToHtml(editContent), [editContent])
 
   const load = useCallback(async () => {
     try {
-      setItems(await api.scratch())
+      setItems(await api.scratch(projectId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
     load()
@@ -41,7 +44,11 @@ export default function ScratchView(): JSX.Element {
 
   async function handleAdd(): Promise<void> {
     if (!content.trim()) return
-    await api.createScratch({ content: content.trim(), summary: summary.trim() || undefined })
+    await api.createScratch({
+      content: content.trim(),
+      summary: summary.trim() || undefined,
+      projectId: projectId ?? undefined
+    })
     setContent('')
     setSummary('')
     setAddOpen(false)
@@ -66,6 +73,24 @@ export default function ScratchView(): JSX.Element {
     if (!window.confirm('删除该随记？')) return
     await api.deleteScratch(item.id)
     load()
+  }
+
+  // 详细编辑：大窗口模态（MarkdownEditor 三模式）
+  async function handleDetailSave(): Promise<void> {
+    if (!detailEdit || !detailEdit.content.trim()) return
+    setDetailSaving(true)
+    try {
+      await api.updateScratch(detailEdit.id, {
+        content: detailEdit.content.trim(),
+        summary: detailEdit.summary.trim() || undefined
+      })
+      setDetailEdit(null)
+      load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDetailSaving(false)
+    }
   }
 
   return (
@@ -180,6 +205,17 @@ export default function ScratchView(): JSX.Element {
                       <IconEdit size={12} />
                       编辑
                     </button>
+                    <button
+                      className="btn small ghost"
+                      title="在更大窗口中编辑"
+                      onClick={() => {
+                        setDetailEdit({ id: item.id, summary: item.summary, content: item.content })
+                        setDetailMode('preview')
+                      }}
+                    >
+                      <IconExpand size={12} />
+                      详细编辑
+                    </button>
                     <button className="btn small danger" onClick={() => handleDelete(item)}>
                       <IconTrash size={12} />
                       删除
@@ -191,6 +227,57 @@ export default function ScratchView(): JSX.Element {
         ))}
         {items.length === 0 && <p className="muted small" style={{ padding: 10 }}>暂无随记</p>}
       </div>
+
+      {/* 详细编辑大窗口 */}
+      {detailEdit && (
+        <div className="global-search-overlay" onMouseDown={() => setDetailEdit(null)}>
+          <div className="lit-modal xl note-editor" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="lit-modal-head">
+              <h3>编辑随记</h3>
+              <div className="row gap">
+                <ModeSwitch mode={detailMode} setMode={setDetailMode} />
+                <button className="btn small primary" onClick={handleDetailSave} disabled={detailSaving || !detailEdit.content.trim()}>
+                  <IconSave size={12} />
+                  {detailSaving ? '保存中…' : '保存'}
+                </button>
+                <button className="icon-btn" onClick={() => setDetailEdit(null)}>
+                  <IconClose size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="scratch-detail-body">
+              <input
+                value={detailEdit.summary}
+                onChange={(e) => setDetailEdit({ ...detailEdit, summary: e.target.value })}
+                placeholder="标题/摘要（可选）"
+                spellCheck={false}
+                style={{ width: '100%', marginBottom: 8 }}
+              />
+              {detailMode === 'code' ? (
+                <CodeEditor
+                  path="scratch.md"
+                  value={detailEdit.content}
+                  onChange={(v) => setDetailEdit({ ...detailEdit, content: v })}
+                />
+              ) : detailMode === 'split' ? (
+                <div className="wb-md-split scratch-detail-split">
+                  <div className="wb-code-wrap">
+                    <CodeEditor
+                      path="scratch.md"
+                      value={detailEdit.content}
+                      onChange={(v) => setDetailEdit({ ...detailEdit, content: v })}
+                    />
+                  </div>
+                  <div className="wb-md-divider" />
+                  <div className="wb-md-preview" dangerouslySetInnerHTML={{ __html: markdownToHtml(detailEdit.content) }} />
+                </div>
+              ) : (
+                <MdWysiwyg value={detailEdit.content} onChange={(v) => setDetailEdit({ ...detailEdit, content: v })} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

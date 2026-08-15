@@ -197,10 +197,25 @@ export interface AppSettings {
   pythonEnv: PythonEnv
   effort: EffortLevel
   skillsPath: string
+  cliTrustedMode: boolean // CLI 完全信任模式（跳过权限确认，危险）
   username: string
   rssFeeds: string[]
   recKeywords: string[]
   recCategories: string[] // arXiv 分类（如 cs.CV, cs.LG），空 = 不限
+}
+
+// ===== API Provider 配置（类 cc-switch） =====
+
+export type ApiProviderType = 'anthropic' | 'openai'
+
+export interface ApiProvider {
+  id: string
+  name: string
+  type: ApiProviderType
+  baseUrl: string
+  apiKey: string
+  model: string
+  note?: string
 }
 
 // ===== Office 预览 =====

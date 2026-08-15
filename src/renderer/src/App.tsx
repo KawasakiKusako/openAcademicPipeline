@@ -9,6 +9,8 @@ import WorkspacePage from './pages/WorkspacePage'
 import SessionPage from './pages/SessionPage'
 import SettingsPage from './pages/SettingsPage'
 import PersonalSettingsPage from './pages/PersonalSettingsPage'
+import ApiSettingsPage from './pages/ApiSettingsPage'
+import SkillSettingsPage from './pages/SkillSettingsPage'
 import TaskDetailPage from './pages/TaskDetailPage'
 import LibraryPage from './pages/LibraryPage'
 import RecommendationsPage from './pages/RecommendationsPage'
@@ -32,6 +34,8 @@ function App(): JSX.Element {
           <Route path="/projects/:projectId/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/personal" element={<PersonalSettingsPage />} />
+          <Route path="/settings/api" element={<ApiSettingsPage />} />
+          <Route path="/settings/skill" element={<SkillSettingsPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/recommendations" element={<RecommendationsPage />} />
           <Route path="/projects/:projectId/recommendations" element={<RecommendationsPage />} />

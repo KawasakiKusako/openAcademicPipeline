@@ -14,6 +14,9 @@ import type { PersonalizationField } from '../shared/types'
 //      即可热加载（应用启动时也会自动扫描）。
 
 const registry = new Map<string, PersonalizationField>()
+// 第三方 schema 文件 → 该文件注册的字段 key 集合。
+// 用于 reload 时移除已删除文件注册的字段（内置字段不在此记录中，不受影响）。
+const fileFieldKeys = new Map<string, Set<string>>()
 
 export function registerPersonalizationField(field: PersonalizationField): void {
   if (!field.key || !field.label || !field.type || !field.group) {
@@ -48,8 +51,9 @@ function normalizeValue(field: PersonalizationField, raw: unknown): unknown {
     }
     case 'color': {
       // 空字符串 = 跟随主题（自定义颜色可随时清除还原）
+      // 支持 #RRGGBB 与 #RRGGBBAA（8 位含透明度）
       if (raw === '') return ''
-      if (typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw)) return raw
+      if (typeof raw === 'string' && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(raw)) return raw
       return field.defaultValue
     }
     case 'image': {
@@ -69,9 +73,23 @@ function normalizeValue(field: PersonalizationField, raw: unknown): unknown {
   }
 }
 
+// 旧值迁移映射：字段类型演进时把历史存储值换算为新语义（如 wallpaperOpacity select→number）
+const LEGACY_VALUE_MAP: Record<string, (raw: unknown) => unknown> = {
+  wallpaperOpacity: (raw) => {
+    if (typeof raw === 'number') return raw
+    if (raw === 'light') return 15
+    if (raw === 'strong') return 55
+    return 35 // 'medium' 或非法值
+  }
+}
+
 export function getPersonalizationValues(): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const f of registry.values()) out[f.key] = getSetting(f.key, f.defaultValue)
+  for (const f of registry.values()) {
+    const raw = getSetting(f.key, f.defaultValue)
+    const migrated = LEGACY_VALUE_MAP[f.key]?.(raw) ?? raw
+    out[f.key] = normalizeValue(f, migrated)
+  }
   return out
 }
 
@@ -130,6 +148,135 @@ function registerBuiltinFields(): void {
     defaultValue: '#3794ff',
     showWhen: { key: 'accent', equals: 'custom' },
     description: '选择「自定义…」后生效'
+  })
+  registerPersonalizationField({
+    key: 'bgHoverColor',
+    label: '悬停背景色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '列表项/按钮悬停背景（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'bgActiveColor',
+    label: '激活背景色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '选中项/激活面板背景（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'bgInputColor',
+    label: '输入框背景色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '输入框/搜索框背景（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'fgDimColor',
+    label: '次级文字色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '次要说明文字（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'fgFaintColor',
+    label: '微弱文字色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '占位符/禁用文字（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'borderStrongColor',
+    label: '强边框色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '强调边框（清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'accentSoftColor',
+    label: '强调浅色',
+    type: 'color',
+    group: '外观',
+    defaultValue: '',
+    description: '强调色的浅底（原为半透明色，选深色调 hex 观感更佳；清空=跟随主题）'
+  })
+  registerPersonalizationField({
+    key: 'radiusMode',
+    label: '圆角风格',
+    type: 'select',
+    group: '外观',
+    defaultValue: 'rounded',
+    options: [
+      { value: 'rounded', label: '圆角（默认）' },
+      { value: 'sharp', label: '直角' }
+    ],
+    description: '全局控件圆角风格，即时生效'
+  })
+  registerPersonalizationField({
+    key: 'uiScale',
+    label: '界面缩放',
+    type: 'select',
+    group: '外观',
+    defaultValue: '1.0',
+    options: [
+      { value: '0.9', label: '紧凑 (90%)' },
+      { value: '1.0', label: '标准 (100%)' },
+      { value: '1.1', label: '宽松 (110%)' }
+    ],
+    description: '整体界面缩放（CSS zoom，即时生效）'
+  })
+  registerPersonalizationField({
+    key: 'winOpacity',
+    label: '窗口不透明度',
+    type: 'number',
+    group: '窗口',
+    defaultValue: 100,
+    min: 80,
+    max: 100,
+    step: 5,
+    description: '主窗口不透明度 %（窗口最大化时系统可能忽略此设置）'
+  })
+  registerPersonalizationField({
+    key: 'winMaterial',
+    label: '窗口磨砂材质',
+    type: 'select',
+    group: '窗口',
+    defaultValue: 'none',
+    options: [
+      { value: 'none', label: '无（默认）' },
+      { value: 'acrylic', label: '亚克力（Windows 11）' },
+      { value: 'mica', label: '云母（Windows 11）' }
+    ],
+    description: '窗口背景系统材质；仅 Windows 11 生效，不满足时退化为半透明'
+  })
+  registerPersonalizationField({
+    key: 'wallpaperFit',
+    label: '背景图适配',
+    type: 'select',
+    group: '外观',
+    defaultValue: 'cover',
+    options: [
+      { value: 'cover', label: '填充裁剪（默认）' },
+      { value: 'contain', label: '完整显示' },
+      { value: 'stretch', label: '拉伸铺满' }
+    ],
+    description: '背景图如何铺满屏幕（完整显示不会裁剪，两侧留白）'
+  })
+  registerPersonalizationField({
+    key: 'bgBlur',
+    label: '背景图模糊',
+    type: 'number',
+    group: '外观',
+    defaultValue: 0,
+    min: 0,
+    max: 50,
+    step: 2,
+    description: '背景图磨砂模糊半径（0=清晰，50=最强）'
   })
   registerPersonalizationField({
     key: 'username',
@@ -201,9 +348,34 @@ function registerBuiltinFields(): void {
       { value: 'vscode-dark', label: 'VS Code 深色' },
       { value: 'vscode-light', label: 'VS Code 浅色' },
       { value: 'one-dark', label: 'One Dark' },
-      { value: 'monokai', label: 'Monokai' }
+      { value: 'monokai', label: 'Monokai' },
+      { value: 'solarized-dark', label: 'Solarized 深色' },
+      { value: 'solarized-light', label: 'Solarized 浅色' },
+      { value: 'github-dark', label: 'GitHub 深色' },
+      { value: 'github-light', label: 'GitHub 浅色' }
     ],
     description: '代码编辑器的语法高亮配色，即时生效'
+  })
+  registerPersonalizationField({
+    key: 'editorCursor',
+    label: '光标样式',
+    type: 'select',
+    group: '编辑器',
+    defaultValue: 'line',
+    options: [
+      { value: 'line', label: '竖线（默认）' },
+      { value: 'block', label: '方块' },
+      { value: 'underline', label: '下划线' }
+    ],
+    description: '代码编辑器光标外观，即时生效'
+  })
+  registerPersonalizationField({
+    key: 'editorIndentGuides',
+    label: '缩进参考线',
+    type: 'boolean',
+    group: '编辑器',
+    defaultValue: false,
+    description: '代码缩进层级显示参考线，即时生效'
   })
   registerPersonalizationField({
     key: 'appBackground',
@@ -269,15 +441,13 @@ function registerBuiltinFields(): void {
   registerPersonalizationField({
     key: 'wallpaperOpacity',
     label: '壁纸浓度',
-    type: 'select',
+    type: 'number',
     group: '外观',
-    defaultValue: 'medium',
-    options: [
-      { value: 'light', label: '淡（0.15）' },
-      { value: 'medium', label: '中（0.35）' },
-      { value: 'strong', label: '浓（0.55）' }
-    ],
-    description: '设置背景图后，壁纸的显示强度'
+    defaultValue: 35,
+    min: 0,
+    max: 100,
+    step: 5,
+    description: '设置背景图后的显示浓度（0~100%，滑块调整）'
   })
   registerPersonalizationField({
     key: 'recKeywords',
@@ -318,14 +488,28 @@ function registerBuiltinFields(): void {
 //   { "key": "myTool.option", "label": "选项", "type": "select", "group": "我的插件",
 //     "defaultValue": "a", "options": [{"value":"a","label":"A"},{"value":"b","label":"B"}] }
 
-export function loadPersonalizationSchemaFiles(): number {
+export function loadPersonalizationSchemaFiles(): { count: number; removed: number } {
   const dir = join(DATA_ROOT, 'personalization')
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
-    return 0
+    return { count: 0, removed: 0 }
   }
+  // 1) 移除已消失的第三方文件注册的字段（修复"只增不删"）：
+  //    内置字段不进 fileFieldKeys，不受影响。
+  const present = new Set(readdirSync(dir).filter((f) => f.endsWith('.json')))
+  let removed = 0
+  for (const [file, keys] of fileFieldKeys) {
+    if (!present.has(file)) {
+      for (const key of keys) {
+        registry.delete(key)
+        removed++
+      }
+      fileFieldKeys.delete(file)
+    }
+  }
+  // 2) 注册本次扫描到的字段（同名覆盖 + 重建归属记录）
   let count = 0
-  for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+  for (const file of present) {
     try {
       const parsed = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as
         | PersonalizationField
@@ -333,13 +517,16 @@ export function loadPersonalizationSchemaFiles(): number {
       const list = Array.isArray((parsed as { fields?: PersonalizationField[] }).fields)
         ? (parsed as { fields: PersonalizationField[] }).fields
         : [parsed as PersonalizationField]
+      const keys = new Set<string>()
       for (const field of list) {
         registerPersonalizationField(field)
+        keys.add(field.key)
         count++
       }
+      fileFieldKeys.set(file, keys)
     } catch (err) {
       console.warn(`[personalization] 跳过无效 schema 文件 ${file}:`, (err as Error)?.message ?? err)
     }
   }
-  return count
+  return { count, removed }
 }

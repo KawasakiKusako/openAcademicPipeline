@@ -3,23 +3,32 @@ import { getDb, newId, now } from '../db'
 
 export const scratchRouter = Router()
 
-// 随记（临时对话沉淀）：知识库第三类，与文献库/笔记库并列
+// 随记（临时对话沉淀）：知识库第三类，与文献库/笔记库并列。
+// project_id 可空 = 全局随记；带值 = 项目随记。
 interface ScratchRow {
   id: string
   content: string
   summary: string
+  project_id: string | null
   created_at: string
 }
 
-scratchRouter.get('/scratch', (_req, res) => {
-  const rows = getDb()
-    .prepare('SELECT * FROM scratch_notes ORDER BY created_at DESC')
-    .all() as unknown as ScratchRow[]
+// GET /scratch?projectId=xxx — 过滤项目随记；缺省/空 = 全局随记
+scratchRouter.get('/scratch', (req, res) => {
+  const projectId = req.query.projectId ? String(req.query.projectId) : null
+  const rows = (projectId
+    ? getDb()
+        .prepare('SELECT * FROM scratch_notes WHERE project_id = ? ORDER BY created_at DESC')
+        .all(projectId)
+    : getDb()
+        .prepare('SELECT * FROM scratch_notes WHERE project_id IS NULL ORDER BY created_at DESC')
+        .all()) as unknown as ScratchRow[]
   res.json(
     rows.map((r) => ({
       id: r.id,
       content: r.content,
       summary: r.summary,
+      projectId: r.project_id,
       createdAt: r.created_at
     }))
   )
@@ -32,11 +41,12 @@ scratchRouter.post('/scratch', (req, res) => {
     return
   }
   const summary = String(req.body?.summary ?? '').trim() || content.slice(0, 80)
+  const projectId = req.body?.projectId ? String(req.body.projectId) : null
   const id = newId()
   getDb()
-    .prepare('INSERT INTO scratch_notes (id, content, summary, created_at) VALUES (?, ?, ?, ?)')
-    .run(id, content, summary, now())
-  res.status(201).json({ id, content, summary, createdAt: now() })
+    .prepare('INSERT INTO scratch_notes (id, content, summary, project_id, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(id, content, summary, projectId, now())
+  res.status(201).json({ id, content, summary, projectId, createdAt: now() })
 })
 
 scratchRouter.put('/scratch/:id', (req, res) => {
@@ -56,7 +66,7 @@ scratchRouter.put('/scratch/:id', (req, res) => {
   getDb()
     .prepare('UPDATE scratch_notes SET content = ?, summary = ? WHERE id = ?')
     .run(content, summary, req.params.id)
-  res.json({ id: req.params.id, content, summary, createdAt: row.created_at })
+  res.json({ id: req.params.id, content, summary, projectId: row.project_id, createdAt: row.created_at })
 })
 
 scratchRouter.delete('/scratch/:id', (req, res) => {

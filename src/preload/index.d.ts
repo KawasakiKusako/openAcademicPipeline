@@ -20,11 +20,20 @@ declare global {
       audienceClose: () => Promise<boolean>
       audienceGetLast: () => Promise<string>
       onAudienceRender: (cb: (html: string) => void) => void
+      autoUpdateCheck: () => Promise<{ state: string; error?: string }>
+      autoUpdateDownload: () => Promise<{ state: string }>
+      autoUpdateInstall: () => Promise<boolean>
+      relaunchApp: () => Promise<boolean>
+      onAutoUpdate: (cb: (status: Record<string, unknown>) => void) => void
+      onCliPermissionRequest: (cb: (req: { requestId: string; action: string; command: string; toolInput: string }) => void) => void
+      cliPermissionRespond: (payload: { requestId: string; decision: string; alwaysAllow?: boolean }) => void
       onAudienceMarker: (cb: (svg: string) => void) => void
       windowMinimize: () => void
       windowMaximize: () => void
       windowClose: () => void
       openPath: (target: string) => Promise<boolean>
+      setWindowOpacity: (v: number) => void
+      setWindowMaterial: (m: string) => void
       onGlobalSearch: (cb: () => void) => void
       onTempChat: (cb: () => void) => void
       openFloatingChat: (text?: string) => void

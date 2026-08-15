@@ -11,6 +11,8 @@ import { isTextFile } from './CodeEditor'
 import TaskSandboxView from '../TaskSandboxView'
 import SettingsPage from '../../pages/SettingsPage'
 import PersonalSettingsPage from '../../pages/PersonalSettingsPage'
+import ApiSettingsPage from '../../pages/ApiSettingsPage'
+import SkillSettingsPage from '../../pages/SkillSettingsPage'
 import RecommendationsPage from '../../pages/RecommendationsPage'
 import { MdWysiwyg, ModeSwitch } from './MarkdownEditor'
 import { SlideCanvas } from '../present/SlideCanvas'
@@ -26,7 +28,9 @@ import {
   IconPalette,
   IconPanel,
   IconPlay,
+  IconPlug,
   IconSettings,
+  IconSkill,
   IconTask
 } from '../Icon'
 import type { RunResult, Task } from '@shared/types'
@@ -130,6 +134,8 @@ export default function Workbench({ projectId }: { projectId: string }): JSX.Ele
             {tab.kind === 'session' && <IconChat size={13} />}
             {tab.kind === 'settings' && <IconSettings size={13} />}
             {tab.kind === 'settings-personal' && <IconPalette size={13} />}
+            {tab.kind === 'settings-api' && <IconPlug size={13} />}
+            {tab.kind === 'settings-skill' && <IconSkill size={13} />}
             {tab.kind === 'recommend' && <IconBook size={13} />}
             <span className="wb-tab-title">{tab.title}</span>
             <button
@@ -179,6 +185,8 @@ export default function Workbench({ projectId }: { projectId: string }): JSX.Ele
             {tab.kind === 'session' && <ChatPanel sessionId={tab.refId} />}
             {tab.kind === 'settings' && <SettingsPage embedded />}
             {tab.kind === 'settings-personal' && <PersonalSettingsPage embedded />}
+            {tab.kind === 'settings-api' && <ApiSettingsPage embedded />}
+            {tab.kind === 'settings-skill' && <SkillSettingsPage embedded />}
             {tab.kind === 'recommend' && <RecommendationsPage embedded />}
           </div>
         ))}

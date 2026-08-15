@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
-import { api, sendChat } from '../lib/api'
+import { api } from '../lib/api'
+import { useChatStream } from '../lib/useChatStream'
 import { IconClose, IconSend, IconStop } from './Icon'
 import type { Message, Session, ToolUse } from '@shared/types'
 
@@ -17,21 +18,31 @@ export default function GlobalChatPopup({ projectId, initialText, onClose }: Pro
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState('')
   const [toolUses, setToolUses] = useState<ToolUse[]>([])
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const sentInitial = useRef(false)
 
   const ensureSession = async (): Promise<Session> => {
     if (session) return session
     const all = await api.sessions(projectId)
-    const existing = all.find((s) => !s.taskId && s.status !== 'running')
+    // 优先复用空闲全局会话；全 running 时复用最近一条（preCheck 会自动停止），
+    // 绝不新建，避免重复会话堆积。
+    const existing = all.find((s) => !s.taskId && s.status !== 'running') ?? all.find((s) => !s.taskId)
     const s = existing ?? (await api.createSession(projectId, { title: '全局会话' }))
     setSession(s)
     setMessages(await api.sessionMessages(s.id))
     return s
   }
+
+  // 流控制统一走 useChatStream
+  const { sending, error, start, stop } = useChatStream({
+    getSessionId: async () => (await ensureSession()).id,
+    onDone: async () => {
+      setStreaming('')
+      setToolUses([])
+      const s = await ensureSession()
+      setMessages(await api.sessionMessages(s.id))
+    }
+  })
 
   // auto-send the initial text from the title bar input
   useEffect(() => {
@@ -46,13 +57,9 @@ export default function GlobalChatPopup({ projectId, initialText, onClose }: Pro
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
   }, [messages, streaming])
 
-  async function send(text: string): Promise<void> {
+  function send(text: string): void {
     const content = text.trim()
     if (!content || sending) return
-    setSending(true)
-    setError(null)
-    const controller = new AbortController()
-    abortRef.current = controller
     setStreaming('')
     setToolUses([])
     setMessages((m) => [
@@ -66,31 +73,10 @@ export default function GlobalChatPopup({ projectId, initialText, onClose }: Pro
         createdAt: new Date().toISOString()
       }
     ])
-    try {
-      const s = await ensureSession()
-      await sendChat(
-        s.id,
-        content,
-        {
-          onText: (delta) => setStreaming((v) => v + delta),
-          onToolUse: (tool) => setToolUses((v) => [...v, tool]),
-          onDone: async () => {
-            setStreaming('')
-            setToolUses([])
-            setMessages(await api.sessionMessages(s.id))
-          },
-          onError: (message) => setError(message)
-        },
-        controller.signal
-      )
-    } catch (err) {
-      if (!(err instanceof Error && err.name === 'AbortError')) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      setSending(false)
-      abortRef.current = null
-    }
+    void start(content, {
+      onText: (delta) => setStreaming((v) => v + delta),
+      onToolUse: (tool) => setToolUses((v) => [...v, tool])
+    })
   }
 
   function handleSubmit(e: FormEvent): void {
@@ -147,7 +133,7 @@ export default function GlobalChatPopup({ projectId, initialText, onClose }: Pro
             spellCheck={false}
           />
           {sending ? (
-            <button type="button" className="btn danger" onClick={() => abortRef.current?.abort()}>
+            <button type="button" className="btn danger" onClick={() => void stop()}>
               <IconStop size={14} />
             </button>
           ) : (

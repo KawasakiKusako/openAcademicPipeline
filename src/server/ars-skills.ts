@@ -2,6 +2,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getSkillsPath } from './settings'
+import { DATA_ROOT } from './paths'
 import type { Task } from '../shared/types'
 
 // Map task types to ARS (academic-research-skills) plugin skills + modes.
@@ -44,6 +45,12 @@ const TYPE_SKILLS: Record<string, ArsSkillRef> = {
     mode: 'revision-coach',
     label: '/ars-revision-coach',
     hint: '审稿意见解析 → 修改路线图 + 回复信骨架'
+  },
+  'presentation-slide': {
+    skill: 'ppt-slides',
+    mode: 'full',
+    label: 'PPT 生成',
+    hint: 'easyslides：SVG 模板风格包生成演示文稿'
   }
 }
 
@@ -73,10 +80,11 @@ export function arsSkillCatalogue(): Record<string, ArsSkillRef> {
   return TYPE_SKILLS
 }
 
-// Locate a skill's SKILL.md under the user's Claude plugins (cache first,
-// then marketplaces). Returns null when the plugin is not installed.
+// Locate a skill's SKILL.md. Priority: OAP 内置（DATA_ROOT/ars，热插拔）→ 用户 Claude 插件缓存 → marketplace。
+// Returns null when the skill is not available anywhere.
 export function findSkillFile(skill: string): string | null {
   const roots = [
+    join(DATA_ROOT, 'ars'), // OAP 内置（Skill 设置 → ARS 管理 安装）
     join(homedir(), '.claude', 'plugins', 'cache', 'academic-research-skills', 'academic-research-skills'),
     join(homedir(), '.claude', 'plugins', 'marketplaces', 'academic-research-skills')
   ]
@@ -139,7 +147,7 @@ export function buildTaskInjection(task: Task): { text: string; skillLabel: stri
       lines.push(content)
     }
   } else {
-    lines.push('（未在本机找到该技能的 SKILL.md，请确认插件已安装）')
+    lines.push('（未找到该技能的 SKILL.md：请到 设置 → Skill 设置 → ARS 管理 安装 ARS 或对应技能）')
   }
 
   lines.push('', '——— 任务指令 ———')

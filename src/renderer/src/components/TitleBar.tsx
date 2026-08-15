@@ -137,6 +137,10 @@ export interface MenuActions {
   onCheckUpdate?: () => void
   onHelp?: () => void
   onOpenSettings?: () => void
+  onOpenPersonalSettings?: () => void
+  onOpenApiSettings?: () => void
+  onOpenSkillSettings?: () => void
+  onSubmitIssue?: () => void
 }
 
 export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[] }[] {
@@ -162,7 +166,11 @@ export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[
     onRecommend,
     onCheckUpdate,
     onHelp,
-    onOpenSettings
+    onOpenSettings,
+    onOpenPersonalSettings,
+    onOpenApiSettings,
+    onOpenSkillSettings,
+    onSubmitIssue
   } = opts
   return [
     {
@@ -229,7 +237,13 @@ export function buildMenus(opts: MenuActions): { label: string; items: MenuItem[
       label: '帮助',
       items: [
         { label: '帮助文档', action: () => onHelp?.() },
-        { label: '设置', action: () => onOpenSettings?.() },
+        { type: 'separator', label: '' },
+        { label: '系统设置', action: () => onOpenSettings?.() },
+        { label: '个性化设置', action: () => onOpenPersonalSettings?.() },
+        { label: 'Skill 设置', action: () => onOpenSkillSettings?.() },
+        { label: 'API 配置', action: () => onOpenApiSettings?.() },
+        { type: 'separator', label: '' },
+        { label: '问题提交（GitHub Issues）', action: () => onSubmitIssue?.() },
         { type: 'separator', label: '' },
         { label: '检查更新…', action: () => onCheckUpdate?.() },
         {

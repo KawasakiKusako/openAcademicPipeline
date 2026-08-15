@@ -5,7 +5,7 @@ export type SidebarView = 'explorer' | 'tasks' | 'sessions' | 'library'
 
 export interface WsTab {
   id: string // 'file:<path>' | 'task:<id>' | 'session:<id>' | 'settings:main' | 'settings-personal:main'
-  kind: 'file' | 'task' | 'session' | 'settings' | 'settings-personal' | 'recommend'
+  kind: 'file' | 'task' | 'session' | 'settings' | 'settings-personal' | 'settings-api' | 'settings-skill' | 'recommend'
   title: string
   refId: string // file path / task id / session id
 }
@@ -26,6 +26,8 @@ interface WorkspaceState {
   editorFontFamily: string
   editorLineHeight: string
   editorTheme: string
+  editorCursor: string
+  editorIndentGuides: boolean
   runResult: { filePath: string; result: unknown } | null
   saveRequest: number
   clipboard: { path: string; cut: boolean } | null
@@ -50,6 +52,8 @@ interface WorkspaceState {
   setEditorFontFamily: (f: string) => void
   setEditorLineHeight: (l: string) => void
   setEditorTheme: (t: string) => void
+  setEditorCursor: (c: string) => void
+  setEditorIndentGuides: (b: boolean) => void
   setRunResult: (r: { filePath: string; result: unknown } | null) => void
   requestSave: () => void
   setClipboard: (c: { path: string; cut: boolean } | null) => void
@@ -83,6 +87,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   editorFontFamily: 'ui-monospace',
   editorLineHeight: '1.7',
   editorTheme: 'follow',
+  editorCursor: 'line',
+  editorIndentGuides: false,
   runResult: null,
   saveRequest: 0,
   clipboard: null,
@@ -137,6 +143,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setEditorFontFamily: (f) => set({ editorFontFamily: f }),
   setEditorLineHeight: (l) => set({ editorLineHeight: l }),
   setEditorTheme: (t) => set({ editorTheme: t }),
+  setEditorCursor: (c) => set({ editorCursor: c }),
+  setEditorIndentGuides: (b) => set({ editorIndentGuides: b }),
   setRunResult: (r) => set({ runResult: r }),
   requestSave: () => set((s) => ({ saveRequest: s.saveRequest + 1 })),
   setClipboard: (c) => set({ clipboard: c }),

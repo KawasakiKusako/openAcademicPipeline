@@ -1,0 +1,43 @@
+<application>
+    <meta>
+        <name>Kawasaki Paper Pipeline</name>
+        <main>0</main>
+        <sub>9</sub>
+        <dev>2</dev>
+        <type>Stable Beta</type>
+        <updateSite>https://github.com/KawasakiKusako/openAcademicPipeline/releases/download/v0.9.2_Stable_beta/open_Academic_Pipeline_v_0.9.2_beta_x64.exe</updateSite>
+    </meta>
+    <info>
+        <note>null</note>
+        <updateType>normal</updateType>
+    </info>
+    <history>
+        <item>
+            <version>0.5.1</version>
+            <date>2026-08-13</date>
+            <type>Preview Beta</type>
+            <note>null</note>
+        </item>
+    </history>
+    <licensing>
+        <rules>
+            <rule>
+                <type>MIT</type>
+                <appliesTo></appliesTo>
+                <note>[EN]Versions within this range are licensed under MIT. All other versions revert to GPLv3.</note>
+                <note>[ZH]此范围内的版本使用 MIT 许可证。所有其他版本恢复为 GPLv3。</note>
+                <note>THIS VERSION IS UNDER MIT LICENSE.</note>
+                <note>此版本使用 MIT 许可证。</note>
+            </rule>
+        </rules>
+    </licensing>
+</application>
+<GeneralNote>
+    <EN>THIS FILE IS NOT FOR UPDATE SERVICE. TO GET LATEST VERSION AND LICENSE INFORMATION, PLEASE CHECK THE GITHUB REPOSITORY. </EN>
+    <ZH>此文件不是更新服务文件。要获取最新版本和许可证信息，请检查 GitHub 仓库。</ZH>
+</GeneralNote>
+<copyright>
+    <EN>Copyright (c) 2026-2027 Kawasaki Kusako. All rights reserved.</EN>
+    <ZH>版权所有 (c) 2026-2027 Kawasaki Kusako。所有权利保留。</ZH>
+</copyright>
+

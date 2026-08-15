@@ -44,7 +44,7 @@ export default function LibraryView({ projectId }: { projectId: string }): JSX.E
       <div className="ws-side-body ws-library">
         {sub === 'lit' && <LiteraturePanel projectId={projectId} />}
         {sub === 'notes' && <NotesView projectId={projectId} libraries={libraries} onChanged={reload} />}
-        {sub === 'scratch' && <ScratchView />}
+        {sub === 'scratch' && <ScratchView projectId={projectId} />}
       </div>
     </div>
   )

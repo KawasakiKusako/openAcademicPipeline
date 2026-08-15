@@ -1,7 +1,7 @@
 # HANDOFF 文档 — Open Academic Pipeline (OAP)
 
 > 本文档面向接手本项目的开发者（人或 AI），事无巨细地记录架构、决策、坑与流程。
-> 最后更新：2026-08-15 · 版本 v0.8.x（开发中，0.7.4 已发布）
+> 最后更新：2026-08-15 · 版本 v0.8.1（开发中，0.7.4 已发布）
 
 ---
 
@@ -174,6 +174,16 @@
 10o. **TS7 TDZ**：`const` 定义前的回调引用报错——signal/abort 处理要放在 Promise executor 内 finish 定义之后。
 10p. **`run()` 无 catch 的 unhandled rejection**：异步路由入口必须 `.catch()`，否则状态/响应不收敛。
 10q. **easyslides 仓库 1.4 万文件/41MB**：zip 全量下载在慢网络下超时 → trees API 过滤核心目录（根+references+scripts+skills+projects）并发 6 路下载；templates 按需 `includeTemplates`。
+10r. **CLI 引擎 settle 门闩被 `case 'result'` 提前消费（0.8.1 修复）**：`finish(fn)`（settled 标志）是 promise 唯一 settle 点；旧代码在 result 事件里调用了它 → 每次成功对话 promise 永久挂起、会话状态卡 running 直到 10 分钟硬超时。**result case 绝不可调用 finish 门闩**，close 事件才是唯一 settle 点；result 后启动 15s 宽限定时器（进程残留时 killChildTree + 5s 二次窗口后强制 resolve）。`total_cost_usd` 解析在 result case 内（曾因同 switch 第二个 case 'result' 死代码而恒 undefined）。
+10s. **会话状态机无代际校验（0.8.1 修复）**：旧请求的迟到回调（res-close/5s 兜底/硬超时）会改写新 run 的状态、删除新 run 的 controller → 停止失效 + 409。现在 `runningSessions: Map<string, {controller, gen}>` + `isCurrent(id, gen)`：stop 删 registry = 旧代作废，新 POST 覆盖 = 新代接管；`finish` 仅在 isCurrent 时写 DB（registry 槽位即所有权令牌）。新增 finish 的 DB 写必须包 try/catch。
+10t. **main/index.ts 不得静态 import server 模块的运行时值**：ESM import 先于本模块函数体求值 → `paths.ts` 在 `OAP_DATA_DIR` 设置前解析 DATA_ROOT → dev 误用 Roaming 生产数据目录（0.8.1 修复：权限桥移入 whenReady 动态 import 之后接线；类型可用 `import type` 静态导入）。
+10u. **权限 hook 脚本路径不能用 `__dirname` 相对路径**：dev 下 `out/main/../../../scripts` 解析到项目外，打包后 scripts/ 根本不在 asar/files 里 → hook 启动失败、权限弹窗永不出现。现方案：构建期 `?raw` 内嵌 `scripts/perm-hook.js` 源码（单点维护）→ 运行时 `ensurePermHook()` 写入 `<DATA_ROOT>/perm-hook.js` → 沙盒 settings.json 引用该磁盘绝对路径。**注意：settings.json 里旧路径条目必须先清除再写入新条目**（旧条目会短路新条目）。
+10v. **`spawnSync(claude --version)` 阻塞主进程事件循环**：server 与 Electron 主进程同进程，冷启动时 CLI 版本探测可达数秒，期间所有 API（含会话加载）排队 → 会话窗口长时间加载中。已改 `cliVersionAsync()`（异步 spawn + 10s 超时 + memoized promise），`/claude/status` 路由改 async，startServer 预热。**任何 spawnSync 重命令都不该出现在请求路径上**（`where` 等 Windows 原生命令除外）。
+10w. **强杀 CLI 后 `--resume` 报 "Session ID already in use"（0.8.1 修复）**：被 taskkill 强杀的 CC 会话其锁/状态残留数分钟，同一 claude_session_id 再 resume 必失败 → 停止后无法继续对话（状态反复 error）。修复：所有中止路径（stop 端点 / res-close / 硬超时 / 引擎 abort catch）清空 `claude_session_id`；cli-engine 非 resume 的 run 一律用 `crypto.randomUUID()` 全新 CC 会话 id（绝不复用 session.id）。代价：中止后新 run 失去 CLI 侧历史（可接受，用户本就要打断）。
+10x. **流式渲染冻结（0.8.1 修复）**：每个 delta 触发一次 React 渲染 + markdown 解析（ChatPanel 曾对流式缓冲跑 `marked`）→ 长回复数百个 delta 拖垮渲染线程 → 整个窗口输入卡死、设置页无法响应。修复：useChatStream 对 onText 做 80ms 批量节流（终态前强制 flush）；流式气泡渲染纯文本，完整消息落库后才由 MdText 渲染。
+10y. **Python 环境优先级（0.8.1）**：用户选择的 conda/system 环境只在 run.ts（脚本运行）生效；沙盒里的 claude CLI 执行 `python` 走的是默认 PATH。修复：spawnCli 按 `getPythonEnv()` 计算 PATH 前缀（conda: `<root>/envs/<name>` + Scripts；system: python 所在目录）注入子进程 env。
+10z. **超时误杀大任务（0.8.1 修复）**：前端曾固定 3 分钟"无响应自动停止"（不看有没有输出）→ 大任务必被砍；后端 10 分钟硬超时同理。现已删除前端自动停止；后端改为**活动感知**：`armHardTimeout()` 在每次 SSE 输出（text/tool_use）时重置 10 分钟计时，只有真死锁（10 分钟零输出）才强制收敛。
+10aa. **沙盒未信任 → 白名单失效 + 弹窗刷屏（0.8.1 修复）**：未 trust 的工作区会被 Claude Code 忽略 permissions.allow（提示 "Ignoring N permissions.allow entries... has not been trusted"），每个常见命令都走 PreToolUse hook → 弹窗遮罩挡住全部输入，表现为"开新对话整个 OAP 卡住"。修复两层：① chat.ts 在 spawn CLI 前写 `~/.claude.json` 的 `projects["<sandbox>"].hasTrustDialogAccepted = true`（合并式）；② 权限端点 `isSandboxAllowed()` 先读沙盒 settings.json 白名单匹配 `Bash(<cmd>:*)`，命中直接放行——**CC 的 PreToolUse hook 先于白名单检查触发，端点必须自己兜底**，否则白名单命令依然弹窗。
 
 ---
 
@@ -209,7 +219,7 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 5. GitHub → Releases → 新建 tag `vX.Y.Z-beta` → 拖拽 exe **+ latest.yml + blockmap** 上传（electron-updater 增量更新依赖）
 6. 更新 `oap.xml` 的 main/sub/dev + updateSite/updatePack/updateInfo（应用内"检查更新"读取）
 
-**发布记录**：v0.7.4（2026-08-14）已推送；0.8.x 开发中。
+**发布记录**：v0.7.4（2026-08-14）已推送；0.8.1 开发中（会话状态机代际化、引擎收敛兜底、权限 hook 路径修复、冷启动阻塞修复、dev 数据目录隔离）。
 **打包注意**：`win.icon` 用 `resources/icon.ico`（坑 #10j）；提交前确认 `release/` 未被跟踪（gitignore 时序坑——曾误提交 121MB 安装包，git rm --cached 修复）。
 
 ---
@@ -276,6 +286,7 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 | 副侧栏（分组会话+内嵌对话） | `src/renderer/src/components/workspace/AuxPanel.tsx` |
 | 会话列表 | `src/renderer/src/components/workspace/SessionsView.tsx` |
 | 会话面板（工作台） | `src/renderer/src/components/workspace/ChatPanel.tsx` |
+| 聊天流控制 hook（同步锁/runId 守卫/停止双保险） | `src/renderer/src/lib/useChatStream.ts` |
 | 独立会话页 | `src/renderer/src/pages/SessionPage.tsx` |
 | Markdown 编辑器（三模式/WYSIWYG/导出 Word） | `src/renderer/src/components/workspace/MarkdownEditor.tsx` |
 | 编辑器（CodeMirror 封装/主题） | `src/renderer/src/components/workspace/CodeEditor.tsx` |
@@ -302,16 +313,17 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 **目标**：任何路径（正常/错误/中断/超时/断连）都必须让 session.status 收敛到 idle/error，绝不卡 running。
 
 **后端（chat.ts）**：
-- 请求入口：status=running → 409；通过 → 落库 user 消息 + `runningSessions.set(id, abort)` 注册
-- `finish(status, extra)`：**幂等**（`finished` 标志 + `clearTimeout(hardTimeout)` + 注册表删除）；完成落库 + 任务翻转 + autoTitle
+- 请求入口：status=running → 409；通过 → 落库 user 消息 + `runningSessions.set(id, { controller, gen })`（gen = 全局单调递增代际号）
+- `finish(status, extra, gen)`：**幂等**（`finished` 标志 + `clearTimeout(hardTimeout)`）+ **代际校验**（`isCurrent(id, gen)` 不通过则 skip，不写 DB 不删 registry）；DB 写包 try/catch；完成落库 + 任务翻转 + autoTitle
 - 收敛路径：
   1. 正常完成 → sseSend done → finish('idle')
   2. 引擎错误 → onError → finish('error')
   3. 客户端断连 → `res.on('close')` → abort + `setTimeout(finish('idle'),0)`（TDZ）
-  4. 手动停止 → `POST /api/sessions/:id/stop` → abort 注册表控制器 + **立即**复位 idle（不依赖断连）
+  4. 手动停止 → `POST /api/sessions/:id/stop` → abort 注册表控制器 + 删 registry（旧代作废）+ **立即**复位 idle（不依赖断连）
   5. 硬超时 10 分钟 → abort + finish('error')
   6. run() 内未捕获异常 → `.catch()` 兜底 → onError
-- **CLI 中断**：cli-engine abort 时 `taskkill /T /F` 杀进程树 + 5s 兜底强制 settle
+- **CLI 中断**：cli-engine abort 时 `killChildTree`（taskkill /T /F 杀进程树）+ 5s 兜底强制 settle
+- **CLI 引擎收敛（0.8.1）**：result 事件只解析 cost + 启动 15s 宽限（进程不退出则 killChildTree + 5s 后强制 resolve）；close 是唯一正常 settle 点
 
 **前端**：
 - 停止按钮 = `abortRef.abort()` + `api.stopSession(id)` **双保险** + 立即复位 sending/streaming + reload
@@ -322,10 +334,11 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 **权限确认（PreToolUse Hook 链路）**：
 ```
 CLI 执行 Bash → 沙盒 .claude/settings.json hooks.PreToolUse(Bash)
-  → node scripts/perm-hook.js（CLI 子进程，stdin 收 hook JSON）
+  → node "<DATA_ROOT>/perm-hook.js"（源码经 ?raw 内嵌构建产物，运行时写入，见坑 #10u）
   → POST /api/cli-permission/request（11455，60s 超时自动 deny）
   → permissionBus（EventEmitter，server↔main 同进程）
-  → main 广播所有窗口 → PermissionModal 弹窗（允许/拒绝/总是允许）
+  → main 广播所有窗口（权限桥在 whenReady 动态 import 后接线，见坑 #10t）
+  → PermissionModal 弹窗（允许/拒绝/总是允许）
   → 决策 IPC → bus → 端点响应 → hook 输出 permissionDecision → CLI 继续/跳过
 「总是允许」→ 写入该沙盒 .claude/settings.json 白名单 + 内存规则（下次直接放行不弹窗）
 「完全信任模式」（设置→沙盒环境）→ CLI 加 --dangerously-skip-permissions，跳过 hook

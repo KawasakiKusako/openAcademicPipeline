@@ -3,6 +3,7 @@ import type { JSX } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { applyPersonalization } from '../lib/personalize'
+import { refreshCustomCss } from '../lib/customStyle'
 import { useProjectsStore } from '../store/projects'
 import { useWorkspaceStore } from '../store/workspace'
 import TitleBar, { buildMenus } from './TitleBar'
@@ -12,6 +13,7 @@ import GlobalChatPopup from './GlobalChatPopup'
 import TempChatPopup from './TempChatPopup'
 import AboutModal from './AboutModal'
 import UpdateModal from './UpdateModal'
+import PermissionModal from './PermissionModal'
 import {
   IconBook,
   IconChat,
@@ -23,7 +25,9 @@ import {
   IconPresent,
   IconProject,
   IconSearch,
+  IconPlug,
   IconSettings,
+  IconSkill,
   IconSun,
   IconTask
 } from './Icon'
@@ -97,7 +101,39 @@ export default function Layout(): JSX.Element {
       .personalization()
       .then((r) => applyPersonalization(r.values))
       .catch(() => undefined)
+    // 自定义样式（DATA_ROOT/custom-style/style.css）
+    void refreshCustomCss()
   }, [setFontSize, setEditorFontFamily, setEditorLineHeight, setWordWrap])
+
+  // 个性化设置变更感知（15s 轮询 + 值 diff）：
+  // 覆盖"AI 通过全局会话调用 oap-style.js 改样式"与多窗口修改场景——
+  // 值有变化才重新应用；自定义样式在 mtime 变化时才重注入。
+  useEffect(() => {
+    const lastValuesRef = { json: '', styleMtime: 0 }
+    let timer: number | undefined
+    const tick = async (): Promise<void> => {
+      try {
+        const r = await api.personalization()
+        const json = JSON.stringify(r.values)
+        if (json !== lastValuesRef.json) {
+          lastValuesRef.json = json
+          applyPersonalization(r.values)
+        }
+        const st = await api.styleStatus()
+        if (st.mtime !== lastValuesRef.styleMtime) {
+          lastValuesRef.styleMtime = st.mtime
+          await refreshCustomCss()
+        }
+      } catch {
+        // 后端不可达时静默，下轮再试
+      }
+      timer = window.setTimeout(() => void tick(), 15_000)
+    }
+    void tick()
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset['theme'] = theme
@@ -174,14 +210,17 @@ export default function Layout(): JSX.Element {
         navigate('/recommendations')
       }
     },
-    onCheckUpdate: () => setUpdateOpen(true),
+    onCheckUpdate: () => {
+      setUpdateAuto(false) // 手动检查：展示完整结果（含"已是最新"）
+      setUpdateOpen(true)
+    },
     onHelp: () => navigate('/help'),
-    onOpenSettings: () => {
-      if (projectId) {
-        openTab({ id: 'settings:main', kind: 'settings', title: '系统设置', refId: 'main' })
-      } else {
-        navigate('/settings')
-      }
+    onOpenSettings: () => openSettings('system'),
+    onOpenPersonalSettings: () => openSettings('personal'),
+    onOpenApiSettings: () => openSettings('api'),
+    onOpenSkillSettings: () => openSettings('skill'),
+    onSubmitIssue: () => {
+      window.open('https://github.com/KawasakiKusako/openAcademicPipeline/issues/new')
     },
     onExportProject: () => {
       if (!projectId) return
@@ -221,14 +260,45 @@ export default function Layout(): JSX.Element {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [tempChatOpen, setTempChatOpen] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
+  const [updateAuto, setUpdateAuto] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // 打开设置：项目内以工作台选项卡打开，项目外跳转路由
+  function openSettings(kind: 'system' | 'personal' | 'api' | 'skill'): void {
+    setSettingsOpen(false)
+    const map: Record<string, { tab: { kind: 'settings' | 'settings-personal' | 'settings-api' | 'settings-skill'; title: string }; route: string }> = {
+      system: { tab: { kind: 'settings', title: '系统设置' }, route: '/settings' },
+      personal: { tab: { kind: 'settings-personal', title: '个性化设置' }, route: '/settings/personal' },
+      api: { tab: { kind: 'settings-api', title: 'API 设置' }, route: '/settings/api' },
+      skill: { tab: { kind: 'settings-skill', title: 'Skill 设置' }, route: '/settings/skill' }
+    }
+    const entry = map[kind]
+    if (!entry) return
+    if (inProject) {
+      openTab({ id: `${entry.tab.kind}:main`, kind: entry.tab.kind, title: entry.tab.title, refId: 'main' })
+    } else {
+      navigate(entry.route)
+    }
+  }
+
+  // 点击活动栏设置菜单外部时关闭
+  useEffect(() => {
+    if (!settingsOpen) return
+    const onDown = (e: MouseEvent): void => {
+      if (!(e.target as HTMLElement).closest('.activity-settings-wrap')) setSettingsOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [settingsOpen])
 
   // 托盘菜单"开始临时对话"
   useEffect(() => {
     window.api.onTempChat(() => setTempChatOpen(true))
   }, [])
 
-  // 启动时检查新版本：有新版才弹窗（auto 模式下无新版自动关闭）
+  // 启动时自动检查：有新版才弹窗（auto 模式下无新版自动关闭，不打扰）
   useEffect(() => {
+    setUpdateAuto(true)
     setUpdateOpen(true)
   }, [])
 
@@ -331,37 +401,35 @@ export default function Layout(): JSX.Element {
             >
               <IconPresent size={19} />
             </button>
-            <button
-              className={`activity-btn${location.pathname === '/settings' ? ' active' : ''}`}
-              title="系统设置"
-              onClick={() => {
-                if (inProject) {
-                  openTab({ id: 'settings:main', kind: 'settings', title: '系统设置', refId: 'main' })
-                } else {
-                  navigate('/settings')
-                }
-              }}
-            >
-              <IconSettings size={19} />
-            </button>
-            <button
-              className={`activity-btn${location.pathname === '/settings/personal' ? ' active' : ''}`}
-              title="个性化设置"
-              onClick={() => {
-                if (inProject) {
-                  openTab({
-                    id: 'settings-personal:main',
-                    kind: 'settings-personal',
-                    title: '个性化设置',
-                    refId: 'main'
-                  })
-                } else {
-                  navigate('/settings/personal')
-                }
-              }}
-            >
-              <IconPalette size={19} />
-            </button>
+            <div className="activity-settings-wrap">
+              <button
+                className={`activity-btn${settingsOpen || location.pathname === '/settings' || location.pathname === '/settings/personal' ? ' active' : ''}`}
+                title="设置"
+                onClick={() => setSettingsOpen((v) => !v)}
+              >
+                <IconSettings size={19} />
+              </button>
+              {settingsOpen && (
+                <div className="activity-settings-menu">
+                  <button type="button" onClick={() => openSettings('system')}>
+                    <IconSettings size={14} />
+                    系统设置
+                  </button>
+                  <button type="button" onClick={() => openSettings('api')}>
+                    <IconPlug size={14} />
+                    API 设置
+                  </button>
+                  <button type="button" onClick={() => openSettings('skill')}>
+                    <IconSkill size={14} />
+                    Skill 设置
+                  </button>
+                  <button type="button" onClick={() => openSettings('personal')}>
+                    <IconPalette size={14} />
+                    个性化设置
+                  </button>
+                </div>
+              )}
+            </div>
             <button className="activity-btn" title="切换主题" onClick={toggleTheme}>
               {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
             </button>
@@ -458,7 +526,8 @@ export default function Layout(): JSX.Element {
       )}
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {tempChatOpen && <TempChatPopup onClose={() => setTempChatOpen(false)} />}
-      {updateOpen && <UpdateModal auto onClose={() => setUpdateOpen(false)} />}
+      {updateOpen && <UpdateModal auto={updateAuto} onClose={() => setUpdateOpen(false)} />}
+      <PermissionModal />
     </div>
   )
 }

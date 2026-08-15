@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, sendChat } from '../lib/api'
+import { api } from '../lib/api'
+import { useChatStream } from '../lib/useChatStream'
 import type { ArsSkillEntry } from '../lib/api'
 import { IconBack, IconLibrary, IconSend, IconStop, IconTask, IconTrash } from '../components/Icon'
 import { MdText } from '../components/workspace/MarkdownEditor'
@@ -27,9 +28,6 @@ export default function SessionPage(): JSX.Element {
   const [status, setStatus] = useState<ClaudeStatus | null>(null)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState<Streaming | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const reload = useCallback(async () => {
@@ -38,6 +36,19 @@ export default function SessionPage(): JSX.Element {
     setMessages(msgs)
   }, [sessionId])
 
+  // 流控制统一走 useChatStream（同步发送锁 / runId 守卫 / 计时器真停止 / stop await）
+  const { sending, error, setError, start, stop } = useChatStream({
+    getSessionId: () => sessionId,
+    onDone: () => {
+      setStreaming(null)
+      void reload()
+    },
+    onIncomplete: () => {
+      setStreaming(null)
+      void reload()
+    }
+  })
+
   useEffect(() => {
     reload().catch((err: unknown) =>
       setError(err instanceof Error ? err.message : String(err))
@@ -45,6 +56,16 @@ export default function SessionPage(): JSX.Element {
     api.claudeStatus().then(setStatus).catch(() => undefined)
     api.arsSkills().then(setArsSkills).catch(() => undefined)
   }, [reload])
+
+  // 会话切换重置：同一路由下 sessionId 变化不会重挂载组件，
+  // 必须主动停止旧会话的在途请求并清空流式/草稿状态，
+  // 否则新会话输入框会残留 sending=true 灰禁（Bug 2）。
+  useEffect(() => {
+    void stop() // stop 的会话 id 是 start 时捕获的旧会话 → 正确收敛旧 run
+    setInput('')
+    setStreaming(null)
+    setError(null)
+  }, [sessionId, stop])
 
   // Find the linked task (session -> task) to show its ARS skill badge
   useEffect(() => {
@@ -67,10 +88,7 @@ export default function SessionPage(): JSX.Element {
     const content = input.trim()
     if (!content || sending || !session) return
     setInput('')
-    setSending(true)
     setError(null)
-    const controller = new AbortController()
-    abortRef.current = controller
 
     // optimistic user bubble; it is persisted server-side too
     setMessages((m) => [
@@ -86,42 +104,11 @@ export default function SessionPage(): JSX.Element {
     ])
     setStreaming({ content: '', toolUses: [] })
 
-    try {
-      await sendChat(
-        sessionId,
-        content,
-        {
-          onText: (delta) => setStreaming((s) => (s ? { ...s, content: s.content + delta } : s)),
-          onToolUse: (tool) =>
-            setStreaming((s) => (s ? { ...s, toolUses: [...s.toolUses, tool] } : s)),
-          onDone: async () => {
-            setStreaming(null)
-            await reload()
-          },
-          onError: (message) => {
-            setStreaming(null)
-            setError(message)
-          }
-        },
-        controller.signal
-      )
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setStreaming(null)
-        await reload()
-      } else {
-        setStreaming(null)
-        setError(err instanceof Error ? err.message : String(err))
-        await reload()
-      }
-    } finally {
-      setSending(false)
-      abortRef.current = null
-    }
-  }
-
-  function handleStop(): void {
-    abortRef.current?.abort()
+    void start(content, {
+      onText: (delta) => setStreaming((s) => (s ? { ...s, content: s.content + delta } : s)),
+      onToolUse: (tool) =>
+        setStreaming((s) => (s ? { ...s, toolUses: [...s.toolUses, tool] } : s))
+    })
   }
 
   if (error && !session) return <div className="error-box">{error}</div>
@@ -211,7 +198,6 @@ export default function SessionPage(): JSX.Element {
             onChange={(e) => setInput(e.target.value)}
             placeholder="输入消息，Enter 发送，Shift+Enter 换行"
             rows={3}
-            disabled={sending}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -224,7 +210,7 @@ export default function SessionPage(): JSX.Element {
               {session.engine === 'cli' ? '运行于项目沙盒 · CLAUDE.md 已加载' : 'API 直连 · 无沙盒上下文'}
             </span>
             {sending ? (
-              <button type="button" className="btn danger" onClick={handleStop}>
+              <button type="button" className="btn danger" onClick={() => void stop()}>
                 <IconStop size={14} />
                 停止
               </button>

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, sendChat } from '../lib/api'
+import { api } from '../lib/api'
+import { useChatStream } from '../lib/useChatStream'
 import TaskSandboxView from '../components/TaskSandboxView'
 import { IconBack, IconSend, IconStop, IconTrash } from '../components/Icon'
 import type {
@@ -98,14 +99,25 @@ export function TaskFormView({ task, skillLabel }: { task: Task; skillLabel: str
   const [values, setValues] = useState<Record<string, string>>({})
   const [literature, setLiterature] = useState<Literature[]>([])
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [streaming, setStreaming] = useState<string>('')
   const [toolUses, setToolUses] = useState<ToolUse[]>([])
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const sidRef = useRef<string | null>(null)
+
+  // 流控制统一走 useChatStream；表单提交先解析/复用会话，再经 start 发送
+  const { sending, error, setError, start, stop } = useChatStream({
+    getSessionId: () => {
+      if (!sidRef.current) throw new Error('会话未就绪')
+      return sidRef.current
+    },
+    onDone: async () => {
+      setStreaming('')
+      setToolUses([])
+      if (sidRef.current) setMessages(await api.sessionMessages(sidRef.current))
+    }
+  })
 
   useEffect(() => {
     api.literature().then(setLiterature).catch(() => undefined)
@@ -123,13 +135,12 @@ export function TaskFormView({ task, skillLabel }: { task: Task; skillLabel: str
   }, [messages, streaming])
 
   const canSubmit =
-    !submitting &&
+    !sending &&
     schema.filter((f) => f.required).every((f) => (values[f.key] ?? '').trim().length > 0)
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
     if (!canSubmit) return
-    setSubmitting(true)
     setError(null)
     try {
       const refs = literature.filter((l) => selectedRefs.has(l.id))
@@ -151,40 +162,26 @@ export function TaskFormView({ task, skillLabel }: { task: Task; skillLabel: str
 
       // Session reuse rule: form submissions continue the task's most recent
       // session (conversation continuity) instead of creating a new one.
+      // 全 running 时也复用最近一条（hook preCheck 会自动停止），绝不新建重复会话。
       const sessions = await api.sessions(projectId)
-      const existing = sessions.find((x) => x.taskId === task.id && x.status !== 'running')
+      const existing =
+        sessions.find((x) => x.taskId === task.id && x.status !== 'running') ??
+        sessions.find((x) => x.taskId === task.id)
       const s = existing ?? (await api.createSession(projectId, { taskId: task.id, title: task.name }))
       setSession(s)
+      sidRef.current = s.id
       const history = await api.sessionMessages(s.id)
       setMessages(history)
 
-      const controller = new AbortController()
-      abortRef.current = controller
       setStreaming('')
       setToolUses([])
 
-      await sendChat(
-        s.id,
-        prompt,
-        {
-          onText: (delta) => setStreaming((v) => v + delta),
-          onToolUse: (tool) => setToolUses((v) => [...v, tool]),
-          onDone: async () => {
-            setStreaming('')
-            setToolUses([])
-            setMessages(await api.sessionMessages(s.id))
-          },
-          onError: (message) => setError(message)
-        },
-        controller.signal
-      )
+      void start(prompt, {
+        onText: (delta) => setStreaming((v) => v + delta),
+        onToolUse: (tool) => setToolUses((v) => [...v, tool])
+      })
     } catch (err) {
-      if (!(err instanceof Error && err.name === 'AbortError')) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      setSubmitting(false)
-      abortRef.current = null
+      setError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -265,11 +262,11 @@ export function TaskFormView({ task, skillLabel }: { task: Task; skillLabel: str
           {error && <div className="error-box">{error}</div>}
 
           <div className="form-actions">
-            {submitting ? (
+            {sending ? (
               <button
                 type="button"
                 className="btn danger"
-                onClick={() => abortRef.current?.abort()}
+                onClick={() => void stop()}
               >
                 <IconStop size={14} />
                 停止
@@ -309,7 +306,7 @@ export function TaskFormView({ task, skillLabel }: { task: Task; skillLabel: str
                 <div className="bubble-text">{m.content}</div>
               </div>
             ))}
-            {(streaming || submitting) && (
+            {(streaming || sending) && (
               <div className="bubble assistant streaming">
                 {toolUses.length > 0 && (
                   <div className="tool-uses">
@@ -338,15 +335,16 @@ export function TaskChatView({ task }: { task: Task }): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState('')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const ensureSession = useCallback(async (): Promise<Session> => {
     if (session) return session
     const list = await api.sessions(projectId)
-    const existing = list.find((s) => s.taskId === task.id)
+    // 优先复用空闲会话；全 running 时复用最近一条（hook preCheck 会自动停止），
+    // 绝不新建，避免重复会话堆积。
+    const existing =
+      list.find((s) => s.taskId === task.id && s.status !== 'running') ??
+      list.find((s) => s.taskId === task.id)
     if (existing) {
       setSession(existing)
       setMessages(await api.sessionMessages(existing.id))
@@ -356,6 +354,16 @@ export function TaskChatView({ task }: { task: Task }): JSX.Element {
     setSession(created)
     return created
   }, [session, projectId, task])
+
+  // 流控制统一走 useChatStream
+  const { sending, error, setError, start, stop } = useChatStream({
+    getSessionId: async () => (await ensureSession()).id,
+    onDone: async () => {
+      setStreaming('')
+      const s = await ensureSession()
+      setMessages(await api.sessionMessages(s.id))
+    }
+  })
 
   useEffect(() => {
     ensureSession().catch((err: unknown) =>
@@ -372,10 +380,6 @@ export function TaskChatView({ task }: { task: Task }): JSX.Element {
     const content = input.trim()
     if (!content || sending) return
     setInput('')
-    setSending(true)
-    setError(null)
-    const controller = new AbortController()
-    abortRef.current = controller
     setStreaming('')
     setMessages((m) => [
       ...m,
@@ -388,29 +392,9 @@ export function TaskChatView({ task }: { task: Task }): JSX.Element {
         createdAt: new Date().toISOString()
       }
     ])
-    try {
-      const s = await ensureSession()
-      await sendChat(
-        s.id,
-        content,
-        {
-          onText: (delta) => setStreaming((v) => v + delta),
-          onDone: async () => {
-            setStreaming('')
-            setMessages(await api.sessionMessages(s.id))
-          },
-          onError: (message) => setError(message)
-        },
-        controller.signal
-      )
-    } catch (err) {
-      if (!(err instanceof Error && err.name === 'AbortError')) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      setSending(false)
-      abortRef.current = null
-    }
+    void start(content, {
+      onText: (delta) => setStreaming((v) => v + delta)
+    })
   }
 
   return (
@@ -442,7 +426,7 @@ export function TaskChatView({ task }: { task: Task }): JSX.Element {
           }}
         />
         {sending ? (
-          <button type="button" className="btn danger" onClick={() => abortRef.current?.abort()}>
+          <button type="button" className="btn danger" onClick={() => void stop()}>
             <IconStop size={14} />
             停止
           </button>

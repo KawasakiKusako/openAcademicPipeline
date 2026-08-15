@@ -20,25 +20,51 @@ export default function SessionsView({
   projectId: string
   taskIdFilter?: string | null
 }): JSX.Element {
-  const { openTab } = useWorkspaceStore()
+  const { openTab, sessionsVersion } = useWorkspaceStore()
   const [sessions, setSessions] = useState<Session[]>([])
   const [tasks, setTasks] = useState<Record<string, string>>({})
+  const [creating, setCreating] = useState(false)
 
   const load = (): void => {
     api.sessions(projectId).then((all) => {
-      setSessions(taskIdFilter ? all.filter((s) => s.taskId === taskIdFilter) : all)
+      // 按更新时间倒序（活跃会话排前面，未命名会话靠时间区分）
+      const sorted = [...all].sort(
+        (a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
+      )
+      setSessions(taskIdFilter ? sorted.filter((s) => s.taskId === taskIdFilter) : sorted)
     })
     api.tasks(projectId).then((ts) => setTasks(Object.fromEntries(ts.map((t) => [t.id, t.name]))))
   }
 
   useEffect(() => {
     load()
-  }, [projectId, taskIdFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId, taskIdFilter, sessionsVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 轮询兜底：会话状态（running/idle）实时同步
+  useEffect(() => {
+    const timer = setInterval(load, 10_000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, taskIdFilter])
 
   async function handleNew(): Promise<void> {
-    const s = await api.createSession(projectId, { taskId: taskIdFilter ?? null })
-    openTab({ id: tabIdFor('session', s.id), kind: 'session', title: s.title, refId: s.id })
-    load()
+    if (creating) return // 防抖：避免连点创建多条重复会话
+    setCreating(true)
+    try {
+      const s = await api.createSession(projectId, { taskId: taskIdFilter ?? null })
+      openTab({ id: tabIdFor('session', s.id), kind: 'session', title: s.title, refId: s.id })
+      load()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // 未命名会话显示创建时间，避免多条同名无法区分
+  const DEFAULT_TITLES = new Set(['新会话', '全局会话', '任务会话', '文件讨论'])
+  function displayTitle(s: Session): string {
+    if (!DEFAULT_TITLES.has(s.title)) return s.title
+    const t = new Date(s.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return `${s.title} · ${t}`
   }
 
   async function handleDelete(id: string): Promise<void> {
@@ -51,7 +77,7 @@ export default function SessionsView({
     <div className="ws-side">
       <div className="ws-side-head">
         <span>会话</span>
-        <button className="icon-btn" title="新建会话" onClick={handleNew}>
+        <button className="icon-btn" title="新建会话" onClick={handleNew} disabled={creating}>
           <IconPlus size={13} />
         </button>
       </div>
@@ -78,7 +104,7 @@ export default function SessionsView({
           >
             <div className="ws-session-title">
               <IconChat size={12} />
-              <span>{s.title}</span>
+              <span>{displayTitle(s)}</span>
               <span className={`ws-dot ${STATUS_DOT[s.status]}`} />
             </div>
             <div className="ws-session-meta">

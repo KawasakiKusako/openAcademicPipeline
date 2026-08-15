@@ -17,6 +17,7 @@ export default function TempChatPopup({ onClose }: { onClose: () => void }): JSX
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const sendingRef = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -26,7 +27,8 @@ export default function TempChatPopup({ onClose }: { onClose: () => void }): JSX
   async function handleSend(e: FormEvent): Promise<void> {
     e.preventDefault()
     const content = input.trim()
-    if (!content || sending) return
+    if (!content || sendingRef.current) return // 同步锁：任何 await 之前拦截双发送
+    sendingRef.current = true
     setInput('')
     setSending(true)
     setError(null)
@@ -85,6 +87,7 @@ export default function TempChatPopup({ onClose }: { onClose: () => void }): JSX
       }
       setStreaming('')
     } finally {
+      sendingRef.current = false
       setSending(false)
       abortRef.current = null
     }

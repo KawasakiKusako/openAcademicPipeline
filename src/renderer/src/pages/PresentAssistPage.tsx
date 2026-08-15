@@ -114,6 +114,9 @@ export default function PresentAssistPage(): JSX.Element {
   const [sending, setSending] = useState(false)
   const [model, setModel] = useState('')
   const [providers, setProviders] = useState<{ id: string; name: string; model: string; isCurrent: boolean }[]>([])
+  // 项目上下文：右键进入时带入；可手动选择；导入项目状态 / 导出到项目随记
+  const [projectId, setProjectId] = useState('')
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [effort, setEffort] = useState<EffortLevel>('high')
   const [error, setError] = useState<string | null>(null)
   const [exported, setExported] = useState(false)
@@ -138,15 +141,45 @@ export default function PresentAssistPage(): JSX.Element {
       .ccSwitchProviders()
       .then((ps) => setProviders(ps))
       .catch(() => undefined)
+    api
+      .projects()
+      .then((ps) => setProjects(ps.map((p) => ({ id: p.id, name: p.name }))))
+      .catch(() => undefined)
   }, [])
 
-  // 从资源管理器右键进入：自动导入文件
+  // 从资源管理器右键进入：自动导入文件 + 记录项目上下文
   useEffect(() => {
     window.api.onPresentAssistImport((payload) => {
+      if (payload.projectId) setProjectId(payload.projectId)
       void importPath(payload.path, payload.projectId)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 导入项目状态（任务/会话/文献概览）作为对话上下文
+  async function importProjectState(pid: string): Promise<void> {
+    if (!pid) return
+    setError(null)
+    try {
+      const res = await fetch('http://127.0.0.1:11455/api/present-assist/import-project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: pid })
+      })
+      const d = (await res.json()) as { name?: string; text?: string; chars?: number; error?: string }
+      if (!res.ok || !d.text) throw new Error(d.error ?? '读取失败')
+      setFiles((prev) => {
+        if (prev.some((f) => f.name === d.name)) return prev
+        return [...prev, { name: d.name!, text: d.text!, chars: d.chars ?? 0 }]
+      })
+      setMessages((prev) => [
+        ...prev,
+        { role: 'system', content: `已导入项目状态：${d.name}`, time: now() }
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   async function importPath(path: string, projectId?: string): Promise<void> {
     setError(null)
@@ -290,7 +323,8 @@ export default function PresentAssistPage(): JSX.Element {
     try {
       await api.createScratch({
         content: md,
-        summary: `汇报助手对话 · ${new Date().toLocaleString('zh-CN')}`
+        summary: `汇报助手对话 · ${new Date().toLocaleString('zh-CN')}`,
+        projectId: projectId || undefined
       })
       setExported(true)
       setTimeout(() => setExported(false), 3000)
@@ -354,6 +388,27 @@ export default function PresentAssistPage(): JSX.Element {
                     options={EFFORTS.map((e) => ({ value: e.value, label: e.label }))}
                   />
                 </div>
+                <div className="pa-more-row">
+                  <span className="pa-more-label">项目</span>
+                  <CustomSelect
+                    value={projectId}
+                    onChange={(v) => setProjectId(v)}
+                    options={[
+                      { value: '', label: '无（全局）' },
+                      ...projects.map((p) => ({ value: p.id, label: p.name }))
+                    ]}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn small pa-more-project"
+                  onClick={() => importProjectState(projectId)}
+                  disabled={!projectId}
+                  title="把项目任务/会话/文献概览导入对话上下文"
+                >
+                  <IconFile size={12} />
+                  导入项目状态
+                </button>
                 <div className="pa-more-sep" />
                 <button
                   className="btn small danger pa-more-clear"

@@ -1,7 +1,15 @@
 import { getDb } from './db'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { AccentColor, AppSettings, EffortLevel, PythonEnv, SessionEngine, Theme } from '../shared/types'
+import type {
+  AccentColor,
+  ApiProvider,
+  AppSettings,
+  EffortLevel,
+  PythonEnv,
+  SessionEngine,
+  Theme
+} from '../shared/types'
 
 // Typed access to the key/value settings table. Values stored as JSON strings.
 
@@ -35,6 +43,7 @@ const DEFAULTS: AppSettings = {
   pythonEnv: { type: null, value: '' },
   effort: 'high' as EffortLevel,
   skillsPath: join(homedir(), '.claude', 'skills'),
+  cliTrustedMode: false,
   accent: 'blue' as AccentColor,
   customAccent: '#3794ff',
   username: '研究员',
@@ -57,6 +66,7 @@ export function getAppSettings(): AppSettings {
     pythonEnv: getSetting<PythonEnv>('pythonEnv', DEFAULTS.pythonEnv),
     effort: getSetting<EffortLevel>('effort', DEFAULTS.effort),
     skillsPath: getSetting<string>('skillsPath', DEFAULTS.skillsPath),
+    cliTrustedMode: getSetting<boolean>('cliTrustedMode', DEFAULTS.cliTrustedMode),
     username: getSetting<string>('username', DEFAULTS.username),
     rssFeeds: getSetting<string[]>('rssFeeds', DEFAULTS.rssFeeds),
     recKeywords: getSetting<string[]>('recKeywords', DEFAULTS.recKeywords),
@@ -74,6 +84,31 @@ export function getApiKey(): string {
 
 export function getApiModel(): string {
   return getSetting<string>('model', '') || (process.env['ANTHROPIC_MODEL'] ?? 'claude-sonnet-5')
+}
+
+// ===== API Provider 配置（类 cc-switch，多配置切换） =====
+
+export function getApiProviders(): ApiProvider[] {
+  return getSetting<ApiProvider[]>('apiProviders', [])
+}
+
+export function setApiProviders(providers: ApiProvider[]): void {
+  setSetting('apiProviders', providers)
+}
+
+export function getActiveApiProviderId(): string {
+  return getSetting<string>('activeApiProviderId', '')
+}
+
+export function setActiveApiProviderId(id: string): void {
+  setSetting('activeApiProviderId', id)
+}
+
+// 当前激活的 Provider（无则返回 null，回退到旧式 apiKey/baseUrl/model 设置）
+export function getActiveApiProvider(): ApiProvider | null {
+  const id = getActiveApiProviderId()
+  if (!id) return null
+  return getApiProviders().find((p) => p.id === id) ?? null
 }
 
 // Model override for the CLI engine: empty means "inherit cc-switch"

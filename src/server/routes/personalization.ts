@@ -26,6 +26,6 @@ personalizationRouter.put('/settings/personalization', (req, res) => {
 
 // POST /api/settings/personalization/reload — 重新扫描第三方 JSON schema 文件
 personalizationRouter.post('/settings/personalization/reload', (_req, res) => {
-  const count = loadPersonalizationSchemaFiles()
-  res.json({ count, total: getPersonalizationFields().length })
+  const { count, removed } = loadPersonalizationSchemaFiles()
+  res.json({ count, removed, total: getPersonalizationFields().length })
 })

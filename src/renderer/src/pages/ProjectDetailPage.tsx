@@ -88,10 +88,17 @@ export default function ProjectDetailPage(): JSX.Element {
   }
 
   async function handleStartSession(task?: Task): Promise<void> {
-    const session = await api.createSession(projectId, {
-      taskId: task?.id ?? null,
-      engine: newSessionEngine
-    })
+    // 复用同作用域最近空闲会话（任务会话按任务、否则全局），避免重复会话堆积
+    const sessions = await api.sessions(projectId)
+    const existing = sessions.find(
+      (s) => (task ? s.taskId === task.id : s.taskId === null) && s.status !== 'running'
+    )
+    const session =
+      existing ??
+      (await api.createSession(projectId, {
+        taskId: task?.id ?? null,
+        engine: newSessionEngine
+      }))
     navigate(`/projects/${projectId}/sessions/${session.id}`)
   }
 

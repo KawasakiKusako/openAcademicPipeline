@@ -127,6 +127,10 @@ function migrate(db: DatabaseSync): void {
   if (!litCols.some((c) => c.name === 'project_id')) {
     db.exec(`ALTER TABLE literature ADD COLUMN project_id TEXT`)
   }
+  const scratchCols = db.prepare('PRAGMA table_info(scratch_notes)').all() as { name: string }[]
+  if (!scratchCols.some((c) => c.name === 'project_id')) {
+    db.exec(`ALTER TABLE scratch_notes ADD COLUMN project_id TEXT`)
+  }
 }
 
 export function now(): string {

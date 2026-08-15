@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, JSX } from 'react'
-import { api, sendChat } from '../../lib/api'
+import { api } from '../../lib/api'
+import { useChatStream } from '../../lib/useChatStream'
 import { useWorkspaceStore } from '../../store/workspace'
 import { IconSend, IconStop } from '../Icon'
 import { MdText } from './MarkdownEditor'
@@ -29,9 +30,6 @@ export default function ChatPanel({
 
   const [streaming, setStreaming] = useState<string>('')
   const [toolUses, setToolUses] = useState<ToolUse[]>([])
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const reload = async (): Promise<void> => {
@@ -41,6 +39,23 @@ export default function ChatPanel({
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+
+  // 流控制统一走 useChatStream（同步发送锁 / runId 守卫 / 计时器真停止 / stop await）
+  const { sending, error, setError, start, stop } = useChatStream({
+    getSessionId: () => sessionId,
+    onDone: () => {
+      setStreaming('')
+      setToolUses([])
+      void reload()
+      bumpSessions()
+    },
+    onIncomplete: () => {
+      setStreaming('')
+      setToolUses([])
+      void reload()
+      bumpSessions()
+    }
+  })
 
   useEffect(() => {
     reload()
@@ -55,10 +70,6 @@ export default function ChatPanel({
     const content = input.trim()
     if (!content || sending) return
     setInput('')
-    setSending(true)
-    setError(null)
-    const controller = new AbortController()
-    abortRef.current = controller
     setStreaming('')
     setToolUses([])
     setMessages((m) => [
@@ -72,35 +83,10 @@ export default function ChatPanel({
         createdAt: new Date().toISOString()
       }
     ])
-    try {
-      await sendChat(
-        sessionId,
-        content,
-        {
-          onText: (delta) => setStreaming((v) => v + delta),
-          onToolUse: (tool) => setToolUses((v) => [...v, tool]),
-          onDone: async () => {
-            setStreaming('')
-            setToolUses([])
-            await reload()
-            bumpSessions()
-          },
-          onError: (message) => {
-            setError(message)
-            bumpSessions()
-          }
-        },
-        controller.signal
-      )
-    } catch (err) {
-      if (!(err instanceof Error && err.name === 'AbortError')) {
-        setError(err instanceof Error ? err.message : String(err))
-        await reload()
-      }
-    } finally {
-      setSending(false)
-      abortRef.current = null
-    }
+    void start(content, {
+      onText: (delta) => setStreaming((v) => v + delta),
+      onToolUse: (tool) => setToolUses((v) => [...v, tool])
+    })
   }
 
   return (
@@ -135,7 +121,9 @@ export default function ChatPanel({
                 ))}
               </div>
             )}
-            {streaming ? <MdText text={streaming} /> : <span className="typing">思考中</span>}
+            {/* 流式期间渲染纯文本（markdown 解析每增量重跑会拖垮渲染线程，
+                完整消息在落库后由 MdText 渲染） */}
+            {streaming ? <div className="bubble-text">{streaming}</div> : <span className="typing">思考中</span>}
           </div>
         )}
       </div>
@@ -154,7 +142,7 @@ export default function ChatPanel({
           }}
         />
         {sending ? (
-          <button type="button" className="btn danger" onClick={() => abortRef.current?.abort()}>
+          <button type="button" className="btn danger" onClick={() => void stop()}>
             <IconStop size={14} />
             停止
           </button>

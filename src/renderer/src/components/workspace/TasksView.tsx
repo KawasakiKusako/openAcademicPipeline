@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { JSX } from 'react'
 import { api } from '../../lib/api'
@@ -15,12 +15,13 @@ const STATUS_LABEL: Record<Task['status'], string> = {
 
 // 任务视图：项目任务列表，点击任务在工作台打开
 export default function TasksView({ projectId }: { projectId: string }): JSX.Element {
-  const { openTab } = useWorkspaceStore()
+  const { openTab, bumpSessions } = useWorkspaceStore()
   const [tasks, setTasks] = useState<Task[]>([])
   const [types, setTypes] = useState<Record<string, { label: string; kind: TaskKind }>>({})
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newType, setNewType] = useState('research-consult')
+  const chatBusy = useRef(false)
 
   const load = (): void => {
     api.tasks(projectId).then(setTasks).catch(() => undefined)
@@ -53,6 +54,24 @@ export default function TasksView({ projectId }: { projectId: string }): JSX.Ele
       task.status === 'todo' ? 'in_progress' : task.status === 'in_progress' ? 'done' : 'todo'
     await api.updateTask(task.id, { status: next })
     load()
+  }
+
+  // 打开任务会话：防抖 + 复用该任务最近空闲会话（无则创建），避免重复会话堆积
+  async function openTaskSession(task: Task): Promise<void> {
+    if (chatBusy.current) return
+    chatBusy.current = true
+    try {
+      const sessions = await api.sessions(projectId)
+      const session =
+        sessions.find((s) => s.taskId === task.id && s.status !== 'running') ??
+        (await api.createSession(projectId, { taskId: task.id, title: task.name }))
+      openTab({ id: tabIdFor('session', session.id), kind: 'session', title: session.title, refId: session.id })
+      bumpSessions()
+    } catch {
+      // ignore
+    } finally {
+      setTimeout(() => (chatBusy.current = false), 500)
+    }
   }
 
   return (
@@ -111,17 +130,10 @@ export default function TasksView({ projectId }: { projectId: string }): JSX.Ele
                 </button>
                 <button
                   className="icon-btn"
-                  title="创建会话（打开副侧栏）"
+                  title="打开任务会话（复用最近会话）"
                   onClick={(e) => {
                     e.stopPropagation()
-                    api.createSession(projectId, { taskId: task.id, title: task.name }).then((s) => {
-                      openTab({
-                        id: tabIdFor('session', s.id),
-                        kind: 'session',
-                        title: s.title,
-                        refId: s.id
-                      })
-                    })
+                    void openTaskSession(task)
                   }}
                 >
                   <IconChat size={13} />

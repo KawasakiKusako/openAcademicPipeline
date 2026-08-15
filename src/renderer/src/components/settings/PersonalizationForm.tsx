@@ -178,13 +178,13 @@ export default function PersonalizationForm({ onApplied }: Props): JSX.Element {
             />
             <input
               value={isClear ? '' : String(v)}
-              placeholder="跟随主题"
+              placeholder="跟随主题（#RRGGBB 或 #RRGGBBAA）"
               onChange={(e) => {
                 const val = e.target.value
                 if (val === '') save(f.key, '')
-                else if (/^#[0-9a-fA-F]{6}$/.test(val)) save(f.key, val)
+                else if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(val)) save(f.key, val)
               }}
-              style={{ width: 120 }}
+              style={{ width: 190 }}
             />
             {!isClear && (
               <button
@@ -207,6 +207,31 @@ export default function PersonalizationForm({ onApplied }: Props): JSX.Element {
           </label>
         )
       case 'number':
+        // min/max 都定义时渲染为「滑块 + 数值」（如壁纸浓度/模糊半径/窗口不透明度）
+        if (typeof f.min === 'number' && typeof f.max === 'number') {
+          return (
+            <div className="row gap personal-range">
+              <input
+                type="range"
+                value={Number(v)}
+                min={f.min}
+                max={f.max}
+                step={f.step ?? 1}
+                onChange={(e) => save(f.key, Number(e.target.value))}
+                style={{ width: 180 }}
+              />
+              <input
+                type="number"
+                value={Number(v)}
+                min={f.min}
+                max={f.max}
+                step={f.step}
+                onChange={(e) => save(f.key, e.target.value === '' ? f.defaultValue : Number(e.target.value))}
+                style={{ width: 64 }}
+              />
+            </div>
+          )
+        }
         return (
           <input
             type="number"

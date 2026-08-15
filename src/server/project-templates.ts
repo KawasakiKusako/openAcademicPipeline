@@ -88,6 +88,22 @@ export const TASK_TYPES: TaskTypeDef[] = [
     description: '表单交互：按审核意见修改论文（ARS revision-coach 技能）',
     kind: 'form',
     formSchema: REVISION_SCHEMA
+  },
+  {
+    type: 'presentation-slide',
+    label: '演示文稿制作',
+    description: '表单交互：基于项目内容生成演示文稿（easyslides PPT 生成技能）',
+    kind: 'form',
+    formSchema: [
+      f('topic', '演示主题', 'textarea', { required: true, placeholder: '本次演示要讲什么…' }),
+      f('materials', '输入材料', 'textarea', { placeholder: '论文、数据、图表、备注…（留空自动读取项目状态）' }),
+      f('structure', '结构要求', 'textarea', { placeholder: '章节/页数要求（可选）' }),
+      f('style', '演示风格', 'select', {
+        placeholder: '选择风格包',
+        options: ['学术风格', '答辩风格（Notebook Defense）', '极简风格', '自动选择']
+      }),
+      COMMON_CONSTRAINTS
+    ]
   }
 ]
 
@@ -151,6 +167,16 @@ export const PROJECT_TYPES: ProjectTypeTemplate[] = [
       t('paper-writing', '报告撰写', '撰写完整研究报告。'),
       t('paper-review', '报告审核', '审核报告的完整性与一致性。'),
       t('paper-revision', '报告修订', '按审核意见修订报告。')
+    ]
+  },
+  {
+    type: 'presentation',
+    label: '演示与汇报',
+    description: '基于项目内容生成演示文稿（PPT）并演练汇报',
+    defaultTasks: [
+      t('research-consult', '演示方案咨询', '明确演示目标、受众、要点与篇幅。'),
+      t('presentation-slide', '演示文稿制作', '基于项目状态与材料生成演示文稿（PPTX），结构清晰、风格统一。'),
+      t('paper-writing', '汇报讲稿撰写', '撰写与幻灯片配套的口语化汇报讲稿。')
     ]
   }
 ]

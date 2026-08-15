@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { applyPersonalization } from '../lib/personalize'
 import PersonalizationForm from '../components/settings/PersonalizationForm'
+import CustomStyleSection from '../components/settings/CustomStyleSection'
 import { IconBack, IconDownload, IconPalette, IconUpload } from '../components/Icon'
 
 // 个性化设置页：外观 / 用户信息 / 编辑器 / 内容偏好 等个人偏好。
@@ -71,6 +72,8 @@ export default function PersonalSettingsPage({ embedded }: { embedded?: boolean 
       </p>
 
       <PersonalizationForm onApplied={applyToStore} />
+
+      <CustomStyleSection />
 
       <div className="form-section" style={{ marginTop: 16 }}>
         <h3>设置备份</h3>

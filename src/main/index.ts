@@ -1,4 +1,11 @@
 import { app, dialog, ipcMain, shell, BrowserWindow, Menu, Tray, nativeImage, screen } from 'electron'
+import { EventEmitter } from 'node:events'
+import { autoUpdater } from 'electron-updater'
+// 注意：这里绝不可静态 import '../server/...' 的运行时值——ESM import 会先于
+// 本模块函数体求值 server 模块（其内部 paths.ts 在模块加载时解析 DATA_ROOT），
+// 导致下方 OAP_DATA_DIR 设置失效、dev 误用生产数据目录（Roaming）。
+// server 侧的类型可静态 import（编译期擦除，无运行时求值）。
+import type { PermissionRequest, PermissionDecision } from '../server/claude/cli-engine'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -86,6 +93,13 @@ ipcMain.on('window:close', (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close()
 })
 
+// 重启应用（环境切换等需要重启生效的场景）
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch()
+  app.exit(0)
+  return true
+})
+
 // Open a folder in the system file explorer
 ipcMain.handle('shell:openPath', async (_event, target: string) => {
   if (typeof target !== 'string' || !target) return false
@@ -93,8 +107,133 @@ ipcMain.handle('shell:openPath', async (_event, target: string) => {
   return !err // empty string means success
 })
 
+// 窗口不透明度（个性化设置 → 窗口组；仅主窗口，排除演示 audience 窗口）
+ipcMain.on('window:set-opacity', (event, v: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win === audienceWindow) return
+  const o = Math.min(1, Math.max(0.8, Number(v) / 100))
+  if (!Number.isFinite(o)) return
+  try {
+    win.setOpacity(o) // Windows 下最大化窗口可能忽略；Linux 部分 WM 不支持（try/catch）
+  } catch {
+    // ignore
+  }
+})
+
+// 窗口磨砂材质（Win11 亚克力/云母）：需要透明背景才能透出系统材质，
+// 渲染端配合 body[data-material] 半透明化 .app-frame。
+// 系统不支持（Win10/非 22H2）时退化为渲染层半透明，无报错。
+ipcMain.on('window:set-material', (event, m: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win === audienceWindow) return
+  const material = m === 'acrylic' || m === 'mica' ? m : 'none'
+  try {
+    win.setBackgroundColor(material === 'none' ? '#000000' : '#00000000')
+    win.setBackgroundMaterial(material as never)
+  } catch {
+    // 平台不支持时忽略
+  }
+})
+
 // App version for the UI. Never rely on npm_package_version (unset in packaged builds).
 ipcMain.handle('app:getVersion', () => app.getVersion())
+
+// ===== CLI 权限确认桥：server 的 permission_request → 广播到窗口 → 决策回写 =====
+// 在 whenReady 中拿到动态 import 的 permissionBus 后调用（见下方）。
+function setupPermissionBridge(permissionBus: EventEmitter): void {
+  permissionBus.on('request', (req: PermissionRequest) => {
+    console.log('[main] permission request → 广播窗口:', req.action, req.command.slice(0, 120))
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('cli:permission-request', req)
+    }
+    // 弹窗需要用户及时处理：把主窗口带到前台（悬浮窗无弹窗组件，弹窗在主窗口渲染）
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+
+  ipcMain.on(
+    'cli:permission-respond',
+    (_e, payload: { requestId: string; decision: string; alwaysAllow?: boolean }) => {
+      const d: PermissionDecision = {
+        decision: payload.decision === 'allow' ? 'allow' : 'deny',
+        alwaysAllow: payload.alwaysAllow === true
+      }
+      permissionBus.emit(`decision:${payload.requestId}`, d)
+    }
+  )
+}
+
+// ===== 自动更新（增量优先，electron-updater 读 GitHub releases 的 latest.yml） =====
+let autoUpdateState: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' = 'idle'
+
+function pushAutoUpdate(extra: Record<string, unknown> = {}): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('app:auto-update', { state: autoUpdateState, ...extra })
+  }
+}
+
+function setupAutoUpdater(): void {
+  if (!app.isPackaged) return // dev 模式无更新通道
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'KawasakiKusako',
+    repo: 'openAcademicPipeline'
+  })
+  autoUpdater.on('checking-for-update', () => {
+    autoUpdateState = 'checking'
+    pushAutoUpdate()
+  })
+  autoUpdater.on('update-available', () => {
+    autoUpdateState = 'available'
+    pushAutoUpdate()
+  })
+  autoUpdater.on('update-not-available', () => {
+    autoUpdateState = 'idle'
+    pushAutoUpdate()
+  })
+  autoUpdater.on('download-progress', (p) => {
+    autoUpdateState = 'downloading'
+    pushAutoUpdate({
+      percent: Math.round(p.percent),
+      transferred: p.transferred,
+      total: p.total,
+      speed: p.bytesPerSecond
+    })
+  })
+  autoUpdater.on('update-downloaded', () => {
+    autoUpdateState = 'downloaded'
+    pushAutoUpdate()
+  })
+  autoUpdater.on('error', (err) => {
+    autoUpdateState = 'error'
+    pushAutoUpdate({ error: err.message })
+  })
+}
+
+ipcMain.handle('app:auto-update-check', () => {
+  if (!app.isPackaged) return { state: 'error', error: '自动更新仅打包版可用，请手动下载' }
+  setupAutoUpdater()
+  autoUpdater.checkForUpdates().catch((err: Error) => {
+    autoUpdateState = 'error'
+    pushAutoUpdate({ error: err.message })
+  })
+  return { state: autoUpdateState }
+})
+
+ipcMain.handle('app:auto-update-download', () => {
+  if (autoUpdateState === 'available') autoUpdater.downloadUpdate()
+  return { state: autoUpdateState }
+})
+
+ipcMain.handle('app:auto-update-install', () => {
+  autoUpdater.quitAndInstall()
+  return true
+})
 
 // ===== 演讲者视图：观众窗口（第二显示器全屏放映） =====
 let audienceWindow: BrowserWindow | null = null
@@ -326,6 +465,9 @@ app.whenReady().then(async () => {
   // Start the local API server (port 11455) before opening the window
   try {
     const { startServer } = await import('../server')
+    // 权限桥必须在 server 动态加载之后接线（此时 OAP_DATA_DIR 已设置）
+    const { permissionBus } = await import('../server/claude/cli-engine')
+    setupPermissionBridge(permissionBus)
     await startServer(11455)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

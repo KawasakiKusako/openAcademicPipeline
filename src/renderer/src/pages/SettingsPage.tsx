@@ -3,7 +3,7 @@ import type { FormEvent, JSX } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { IconBack, IconRefresh } from '../components/Icon'
-import type { AppSettings, EffortLevel, PythonEnv } from '@shared/types'
+import type { EffortLevel, PythonEnv } from '@shared/types'
 
 interface CcProvider {
   id: string
@@ -22,25 +22,18 @@ interface EnvInfo {
 
 export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.Element {
   const navigate = useNavigate()
-  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [ready, setReady] = useState(false)
   const [providers, setProviders] = useState<CcProvider[]>([])
   const [cliModel, setCliModel] = useState<string | null>(null)
   const [envs, setEnvs] = useState<EnvInfo | null>(null)
-  const [skills, setSkills] = useState<{ path: string; skills: { name: string }[] }>({
-    path: '',
-    skills: []
-  })
   const [defaultEngine, setDefaultEngine] = useState<'cli' | 'api'>('cli')
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState<EffortLevel>('high')
   const [pythonEnv, setPythonEnv] = useState<PythonEnv>({ type: null, value: '' })
   const [condaPath, setCondaPath] = useState('')
   const [skillsPath, setSkillsPath] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [clearApiKey, setClearApiKey] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [cliTrusted, setCliTrusted] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -66,11 +59,10 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
     api
       .settings()
       .then((s) => {
-        setSettings(s)
         setDefaultEngine(s.defaultEngine)
         setModel(s.model)
-        setBaseUrl(s.baseUrl)
         setEffort(s.effort)
+        setCliTrusted(Boolean(s.cliTrustedMode))
         setPythonEnv(s.pythonEnv)
         setCondaPath(s.pythonEnv.condaPath ?? '')
         setSkillsPath(s.skillsPath)
@@ -79,7 +71,6 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
     loadProviders()
     api.claudeStatus().then((s) => setCliModel(s.model)).catch(() => undefined)
     api.envs().then(setEnvs).catch(() => undefined)
-    api.skills().then(setSkills).catch(() => undefined)
     // 全部基础数据就绪后显示界面（避免打开时卡顿感）
     const timer = setTimeout(() => setReady(true), 350)
     return () => clearTimeout(timer)
@@ -89,13 +80,21 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
   // 串行化：快速连续切换时按顺序落库，避免并发乱序导致环境来回跳变。
   const saveChain = useRef<Promise<void>>(Promise.resolve())
 
+  // 运行环境切换后需要重启才生效
+  function promptRestartIfEnvChanged(patch: Record<string, unknown>): void {
+    if (!('pythonEnv' in patch)) return
+    if (window.confirm('运行环境已切换，需要重启 OAP 才能生效。是否立即重启？')) {
+      window.api.relaunchApp()
+    }
+  }
+
   function quickSave(patch: Parameters<typeof api.updateSettings>[0]): Promise<void> {
     const task = saveChain.current.then(async () => {
       try {
-        const updated = await api.updateSettings(patch)
-        setSettings(updated)
+        await api.updateSettings(patch)
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
+        promptRestartIfEnvChanged(patch as Record<string, unknown>)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -127,20 +126,17 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
     setSaved(false)
     setError(null)
     try {
-      const updated = await api.updateSettings({
+      await api.updateSettings({
         defaultEngine,
-        apiKey: apiKey.trim() || undefined,
-        clearApiKey: clearApiKey || undefined,
         model: model.trim(),
-        baseUrl: baseUrl.trim(),
         effort,
         pythonEnv: { ...pythonEnv, condaPath: condaPath.trim() || undefined },
         skillsPath
       })
-      setSettings(updated)
-      setApiKey('')
-      setClearApiKey(false)
       setSaved(true)
+      promptRestartIfEnvChanged({
+        pythonEnv: { ...pythonEnv, condaPath: condaPath.trim() || undefined }
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -384,9 +380,23 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
             </div>
             {scanResult && <span className="muted small">{scanResult}</span>}
           </label>
+          <label className="checkbox" title="CLI 会话跳过所有权限确认（危险，仅在你完全信任沙盒内容时开启）">
+            <input
+              type="checkbox"
+              checked={cliTrusted}
+              onChange={(e) => {
+                setCliTrusted(e.target.checked)
+                quickSave({ cliTrustedMode: e.target.checked })
+              }}
+            />
+            CLI 完全信任模式（跳过权限确认，危险）
+          </label>
+          <span className="muted small">
+            默认模式已预置常用命令白名单（提取文本/读取文件/沙盒内操作）；完全信任模式跳过全部确认
+          </span>
         </section>
 
-        {/* ③ 自定义技能 */}
+        {/* ③ 自定义技能（已迁移到 Skill 设置） */}
         <section className="form-section">
           <h3>自定义技能</h3>
           <label className="field">
@@ -397,8 +407,7 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
               placeholder={`默认：~/.claude/skills`}
             />
             <span className="muted small">
-              检测到 {skills.skills.length} 个技能：
-              {skills.skills.map((s) => s.name).join('、') || '（空目录或未创建）'} · 任务可关联这些技能
+              技能管理（安装/市场/部署到 Agent）已移至 设置 → Skill 设置
             </span>
           </label>
         </section>
@@ -435,31 +444,6 @@ export default function SettingsPage({ embedded }: { embedded?: boolean }): JSX.
             </span>
           </div>
           {clearResult && <div className="success-box">{clearResult}</div>}
-        </section>
-
-        {/* ④ API 保底 */}
-        <section className="form-section">
-          <h3>API 直连（保底）</h3>
-          <label className="field">
-            <span className="field-label">API Key</span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={settings?.apiKeyMasked ? `已保存 ${settings.apiKeyMasked}，留空保持不变` : 'sk-…'}
-              autoComplete="off"
-            />
-          </label>
-          {settings?.apiKeyMasked && (
-            <label className="checkbox">
-              <input type="checkbox" checked={clearApiKey} onChange={(e) => setClearApiKey(e.target.checked)} />
-              清除已保存的 API Key
-            </label>
-          )}
-          <label className="field">
-            <span className="field-label">API Base URL</span>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.anthropic.com" />
-          </label>
         </section>
 
         {error && <div className="error-box">{error}</div>}

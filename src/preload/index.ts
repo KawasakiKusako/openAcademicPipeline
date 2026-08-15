@@ -14,6 +14,8 @@ const api = {
   windowMaximize: (): void => ipcRenderer.send('window:maximize'),
   windowClose: (): void => ipcRenderer.send('window:close'),
   openPath: (target: string): Promise<boolean> => ipcRenderer.invoke('shell:openPath', target),
+  setWindowOpacity: (v: number): void => ipcRenderer.send('window:set-opacity', v),
+  setWindowMaterial: (m: string): void => ipcRenderer.send('window:set-material', m),
   onGlobalSearch: (cb: () => void): void => {
     ipcRenderer.on('global-search', () => cb())
   },
@@ -55,6 +57,19 @@ const api = {
   },
   onAudienceMarker: (cb: (svg: string) => void): void => {
     ipcRenderer.on('audience:marker', (_e, svg: string) => cb(svg))
+  },
+  autoUpdateCheck: (): Promise<{ state: string; error?: string }> => ipcRenderer.invoke('app:auto-update-check'),
+  autoUpdateDownload: (): Promise<{ state: string }> => ipcRenderer.invoke('app:auto-update-download'),
+  autoUpdateInstall: (): Promise<boolean> => ipcRenderer.invoke('app:auto-update-install'),
+  relaunchApp: (): Promise<boolean> => ipcRenderer.invoke('app:relaunch'),
+  onAutoUpdate: (cb: (status: Record<string, unknown>) => void): void => {
+    ipcRenderer.on('app:auto-update', (_e, status: Record<string, unknown>) => cb(status))
+  },
+  onCliPermissionRequest: (cb: (req: { requestId: string; action: string; command: string; toolInput: string }) => void): void => {
+    ipcRenderer.on('cli:permission-request', (_e, req) => cb(req))
+  },
+  cliPermissionRespond: (payload: { requestId: string; decision: string; alwaysAllow?: boolean }): void => {
+    ipcRenderer.send('cli:permission-respond', payload)
   }
 }
 
