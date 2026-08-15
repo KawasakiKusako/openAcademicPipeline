@@ -1,20 +1,23 @@
 # HANDOFF 文档 — Open Academic Pipeline (OAP)
 
 > 本文档面向接手本项目的开发者（人或 AI），事无巨细地记录架构、决策、坑与流程。
-> 最后更新：2026-08-14 · 版本 v0.7.4
+> 最后更新：2026-08-15 · 版本 v0.8.x（开发中，0.7.4 已发布）
 
 ---
 
 ## 1. 项目是什么
 
 **Open Academic Pipeline (OAP)**：VSCode 风格的学术研究桌面应用（Electron）。
-以"项目"为容器组织任务、会话、文件、知识库，将 Claude Code CLI 与 ARS 学术技能整合为完整研究管线：研究咨询 → 准备写作 → 论文写作 → 论文审核 → 论文修改。
+以"项目"为容器组织任务、会话、文件、知识库，将 Claude Code CLI 与 ARS 学术技能整合为完整研究管线：研究咨询 → 准备写作 → 论文写作 → 论文审核 → 论文修改 → 演示与汇报。
 
-**核心用户流**：创建项目（绑定文件夹）→ 项目内自动生成任务集（按项目类型模板）→ 任务以表单/会话形式执行（AI 按 ARS 技能流程工作）→ 产物写入项目沙盒 → 知识库沉淀文献/笔记/随记。
+**核心用户流**：创建项目（绑定文件夹）→ 项目内自动生成任务集（按项目类型模板）→ 任务以表单/会话形式执行（AI 按 ARS/技能流程工作）→ 产物写入项目沙盒 → 知识库沉淀文献/笔记/随记。
 
 **悬浮窗体系**：托盘可打开「临时对话」与「汇报助手」两个独立悬浮窗（不加载应用壳）。
-汇报助手 = 多文件导入（pptx/docx/pdf/txt/md，后端解析文本）+ 原生 API 对话（模型/思考强度可调、
-记录 localStorage 持久化、可导出为 md 存入知识库随记）。活动栏「汇报」按钮与资源管理器右键均直开悬浮窗。
+- 临时对话：无项目随手提问，可保存到随记
+- 汇报助手：多文件导入（pptx/docx/pdf/txt/md）+ 原生 API 对话（模型/思考强度可调、记录 localStorage 持久化、导出为 md 存入随记、项目状态导入）
+- 活动栏「汇报」按钮与资源管理器右键均直开汇报助手悬浮窗
+
+**权限确认体系**：CLI 会话执行 Bash 命令时，通过 PreToolUse Hook 弹出桌面确认框（允许/拒绝/总是允许），详见 §6 坑 #10k 与 §12。
 
 ---
 
@@ -31,14 +34,17 @@
 | 编辑器 | CodeMirror 6（@uiw/react-codemirror）+ marked | — |
 | 后端 | Express（进程内，本机 11455）+ node:sqlite | 5 / 内置 |
 | AI | Claude Code CLI（spawn）+ Anthropic API 保底 | CLI 2.1.x 实测 |
-| 学术技能 | ARS 插件（academic-research-skills） | 3.10.0 实测 |
+| 学术技能 | ARS 插件（academic-research-skills） | 3.10.0 实测，已可内置化 |
+| Office 解析 | mammoth(docx) / SheetJS(xlsx) / pdf-parse(pdf) / jszip(pptx) | — |
+| 文档生成 | docx（导出 Word）/ turndown+marked（MD WYSIWYG） | — |
+| 自动更新 | electron-updater（增量差分，读 GitHub latest.yml） | 6.8.x |
 
 **端口约定**：前端 dev server **11454**（strictPort），后端 API **11455**（127.0.0.1 only）。
 
 **重要版本约束（升级前必读）**：
 - `@vitejs/plugin-react@6` 要求 Vite 8，与 electron-vite 5 冲突 → 锁 `vite@^7` + `plugin-react@^5`
 - TypeScript 7 移除了 `baseUrl`（paths 必须用相对前缀 `./`），且 `React.xxx` 全局命名空间不可用（必须显式 `import type { FormEvent, JSX, MouseEvent ... } from 'react'`）
-- Electron 43 内置 Node 24.18 → `node:sqlite`（DatabaseSync）可用，**不要引入 better-sqlite3**（省去原生编译地狱）
+- Electron 43 内置 Node 24.18 → `node:sqlite`（DatabaseSync）可用，**不要引入 better-sqlite3**
 
 ---
 
@@ -47,105 +53,127 @@
 ```
 ┌───────────────────────────── Electron 主进程 ─────────────────────────────┐
 │  main/index.ts                                                           │
-│  ├─ 窗口（frameless 1440x900）│ 托盘 │ 悬浮窗（第二 BrowserWindow）│ IPC │
+│  ├─ 窗口（frameless 1440x900）│ 托盘 │ 临时对话悬浮窗 │ 汇报助手悬浮窗 │ IPC │
+│  ├─ autoUpdater（electron-updater 增量更新）                             │
+│  ├─ CLI 权限确认桥（permissionBus → 窗口广播 → 决策回写）                 │
 │  └─ 动态 import('../server') → Express 监听 127.0.0.1:11455            │
 │                                                                          │
 │  server/（与主进程同进程，动态 import，因 OAP_DATA_DIR 必须先设置）        │
 │  ├─ db.ts: node:sqlite 单连接 + migrate + mapXxx 行映射                  │
 │  ├─ routes/: projects/tasks/sessions/literature/libraries/files/run/    │
 │  │           chat/claude/ccswitch/envs/settings/skills/scratch/         │
-│  │           recommendations/update                                       │
-│  └─ claude/: cli-engine（spawn CLI，prompt 走 stdin）+ api-engine       │
+│  │           recommendations/update/personalization/present-assist/     │
+│  │           office/api-providers/ars                                    │
+│  ├─ claude/: cli-engine（spawn CLI + 权限总线）+ api-engine（双格式）     │
+│  └─ personalization.ts（个性化设置注册中心，schema 驱动）                 │
 │                                                                          │
 │  preload/: contextBridge 暴露 window.api（含 IPC 转发）                  │
 │                                                                          │
 │  renderer/（React，Vite dev 11454 / 打包后 file://）                     │
-│  ├─ Layout（标题栏+活动栏+侧栏+状态栏框架）                               │
-│  ├─ pages: Projects(OpenAI式)/Workspace(VSCode式)/Settings/Library/      │
-│  │         Recommendations/Session/TaskDetail/FloatingChat               │
-│  ├─ components/workspace: ExplorerView/TasksView/SessionsView/           │
-│  │         LibraryView(文献/笔记/随记)/Workbench/AuxPanel/ChatPanel/     │
-│  │         CodeEditor/Resizer/NotesView/ScratchView                      │
+│  ├─ Layout（标题栏+活动栏+侧栏+状态栏+全局弹窗：更新/权限/关于）           │
+│  ├─ pages: Projects/Workspace/Settings×4/Api/Skill/Library/             │
+│  │         Recommendations/Session/TaskDetail/FloatingChat/             │
+│  │         PresentAssist/Help/Audience                                    │
+│  ├─ components/workspace: Explorer/Tasks/Sessions/Library/Workbench/    │
+│  │         AuxPanel/ChatPanel/CodeEditor/Resizer/Notes/Scratch/         │
+│  │         MarkdownEditor（三模式 + WYSIWYG + 导出 Word）                 │
 │  └─ store: projects.ts + workspace.ts（zustand，含大量 UI 状态）          │
 └──────────────────────────────────────────────────────────────────────────┘
         ▲ HTTP fetch（渲染进程直接调 11455，CSP 已放行）                   
-        │ IPC（目录选择/窗口控制/托盘事件/悬浮窗转发）                      
+        │ IPC（目录选择/窗口控制/托盘事件/悬浮窗转发/权限决策/自动更新）     
         └─ spawn claude.cmd（cwd=项目沙盒，stdin=prompt）                  
 ```
 
 ### 数据流要点
 
 - **渲染进程 → 后端**：直接 `fetch('http://127.0.0.1:11455/api/...')`（CORS 白名单 11454 + file://）
-- **聊天**：`POST /api/sessions/:id/chat` → SSE 流（event: text / tool_use / done / error），客户端 AbortController 中断
+- **聊天**：`POST /api/sessions/:id/chat` → SSE 流（event: text / tool_use / done / error），客户端 AbortController 中断；停止时同时调 `POST /api/sessions/:id/stop`（后端主动终止，见 §12 会话状态机）
 - **CLI 调用**：`spawn(claude.cmd, [...args, '-p'], { cwd: 沙盒, stdio: ['pipe','pipe','pipe'] })`，**prompt 写入 stdin**（见 §6 坑 #2）
-- **设置拆分**：系统设置（引擎/环境/API，强类型 `AppSettings`）与个性化设置（外观/昵称/内容偏好）分离。个性化设置是 schema 驱动的通用接口：字段在 `personalization.ts` 注册（内置或第三方 JSON 文件 `<DATA_ROOT>/personalization/*.json`，支持热重载），渲染端 `PersonalizationForm` 按 schema 自动生成表单，读写走 `GET/PUT /api/settings/personalization`。新增个性化字段无需改页面
 - **文件**：项目沙盒 = 用户选择的文件夹；所有文件接口按 projectId 解析路径（`resolveInSandbox` 防逃逸）
+- **权限确认链路**：CLI 执行 Bash → 沙盒 `.claude/settings.json` 的 PreToolUse hook → `scripts/perm-hook.js` POST 11455 → permissionBus（server↔main 同进程 EventEmitter）→ 窗口广播 → 桌面弹窗 → 决策回写 → hook 返回 `permissionDecision`（详见 §6 坑 #10k）
+- **设置体系**：系统设置（强类型 AppSettings）/ API 设置（Provider 多配置）/ Skill 设置 / 个性化设置（schema 注册中心），左下角 ⚙ 菜单四项入口
 
 ---
 
 ## 4. 数据库 Schema（SQLite，node:sqlite 同步 API）
 
-所有表见 `src/server/db.ts` 的 `migrate()`；**列变更**用 `PRAGMA table_info` 检查后 `ALTER TABLE`（见 engine/cost/skill/project_id 等迁移示例）。
+所有表见 `src/server/db.ts` 的 `migrate()`；**列变更**用 `PRAGMA table_info` 检查后 `ALTER TABLE`。
 
 | 表 | 关键列 | 说明 |
 |---|---|---|
 | projects | id, name, type, description, main_prompt, **sandbox_path**, status | 沙盒路径=用户选的项目文件夹 |
-| tasks | id, project_id, name, type, prompt, **skill**, status, position | type ∈ 5 种任务类型；skill=自定义技能覆盖 |
-| sessions | id, project_id, **task_id(可空=全局会话)**, claude_session_id, engine(cli/api), title, status, **cost** | cost 从 CLI result 事件 total_cost_usd 累计 |
-| messages | id, session_id, role, content, **tool_uses(JSON)** | toolUses 解析自 assistant 事件的 tool_use block |
+| tasks | id, project_id, name, type, prompt, **skill**, status, position | type ∈ 6 种任务类型；skill=自定义技能覆盖 |
+| sessions | id, project_id, **task_id(可空=全局会话)**, claude_session_id, engine(cli/api), title, status, **cost** | cost 从 CLI result 事件累计 |
+| messages | id, session_id, role, content, **tool_uses(JSON)** | toolUses 解析自 assistant 事件 |
 | libraries | id, project_id(可空=全局), name, path, description | 笔记库（本地目录） |
 | literature | id, **project_id(可空=全局)**, title, authors(JSON), year, venue, doi, url, abstract, notes | 文献库 |
-| scratch_notes | id, content, summary, created_at | 随记（临时对话沉淀） |
-| settings | key, value(JSON) | 所有设置（见 settings.ts DEFAULTS） |
+| scratch_notes | id, content, summary, **project_id(可空=全局)**, created_at | 随记；**0.8 迁移新增 project_id**（项目随记） |
+| settings | key, value(JSON) | 所有设置（见 settings.ts DEFAULTS + 扩展键） |
+
+**settings 表扩展键**（除 AppSettings 外）：
+- `apiProviders` / `activeApiProviderId`：API Provider 多配置（类 cc-switch）
+- `apiSkills`：API 引擎技能注入启用列表（string[]）
+- `cliTrustedMode`：CLI 完全信任模式（boolean，危险开关）
+- 个性化字段（schema 驱动，见 personalization.ts）：theme/accent/customAccent/appBackground/wallpaperOpacity/bgColor/cardBgColor/sideBgColor/borderColor/textColor/editorFontFamily/editorFontSize/editorLineHeight/editorWordWrap/editorTheme/sidebarTone/username/recKeywords/recCategories/rssFeeds
 
 **数据位置**：开发 = 项目根 `data/`（main/index.ts 设置 `OAP_DATA_DIR`）；生产 = `app.getPath('userData')/oap`。
+- `data/ars/`：内置 ARS 学术技能 + ppt-slides（easyslides）+ ars-meta.json
+- `data/personalization/*.json`：第三方个性化字段（schema 注册）
+- 沙盒 `_oap_preview/`：Office 高保真转换的 PDF 缓存（**不能用点开头目录**，见坑 #10e）
 
 ---
 
-## 5. 任务系统（5 类型 + 表单 Schema）
+## 5. 任务系统（6 类型 + 表单 Schema）
 
 定义在 `src/server/project-templates.ts`：
 
-| type | kind | 表单字段（formSchema） |
-|---|---|---|
-| research-consult | chat | 无（直接对话） |
-| writing-prep | form | goal*/materials/structure/constraints |
-| paper-writing | form | goal*/materials/structure/journal/constraints |
-| paper-review | form | paperText*/journal/focus(select)/constraints |
-| paper-revision | form | paperText*/reviewerComments*/focus(select)/constraints |
+| type | kind | 表单字段（formSchema） | 技能映射 |
+|---|---|---|---|
+| research-consult | chat | 无（直接对话） | academic-paper/plan |
+| writing-prep | form | goal*/materials/structure/constraints | academic-paper/plan |
+| paper-writing | form | goal*/materials/structure/journal/constraints | academic-paper/outline |
+| paper-review | form | paperText*/journal/focus(select)/constraints | academic-paper-reviewer/full |
+| paper-revision | form | paperText*/reviewerComments*/focus(select)/constraints | academic-paper/revision-coach |
+| presentation-slide | form | topic*/materials/structure/style(select)/constraints | ppt-slides（easyslides） |
 
-**执行链**：TaskFormView（`pages/TaskDetailPage.tsx`）按 schema 渲染表单 → 组装 prompt（任务名+说明+各字段+关联文献+技能提示）→ 复用任务最近空闲会话 → SSE 流式 → 结果区展示。
+**项目类型（6 种）**：paper-research / data-analysis / paper-check / group-meeting / research-report / **presentation（演示与汇报，0.8 新增）**。
+`presentation` 默认任务：演示方案咨询 + 演示文稿制作 + 汇报讲稿撰写。
 
-**ARS 技能注入**：`server/ars-skills.ts` 按任务 type 映射技能（见 TYPE_SKILLS）→ 找 SKILL.md（插件缓存 `~/.claude/plugins/cache/academic-research-skills/academic-research-skills/<版本>/<技能名>/SKILL.md`）→ **写入沙盒 `CLAUDE.local.md`**（CLI 自动加载，绕开命令行参数限制）→ 对话前写入、会话结束后不清理（下次覆盖）。
+**执行链**：TaskFormView → 组装 prompt → **ARS 技能注入**（`ars-skills.ts`：TYPE_SKILLS 映射 → 找 SKILL.md → 写沙盒 `CLAUDE.local.md`）→ 复用任务最近空闲会话 → SSE 流式。
+演示文稿任务额外把**项目状态**（任务清单 + 文献）附入注入文本（chat.ts 内联组装，让 AI 基于项目上下文生成）。
 
-**项目类型模板**：5 种（paper-research/data-analysis/paper-check/group-meeting/research-report），创建项目时自动种子化默认任务（按模板 defaultTasks）。
+**技能查找优先级**（`findSkillFile`）：内置 `DATA_ROOT/ars/<skill>/SKILL.md` → 插件缓存 → marketplace。热插拔：每次注入实时扫描。
 
 ---
 
 ## 6. 踩过的坑（必读！接手后别再踩）
 
-1. **npm 11 改写下划线配置**：`.npmrc` 的 `electron_mirror` 会被转成 `electron-mirror`（electron 安装脚本读不到）→ `scripts/ensure-electron-binary.mjs` postinstall 钩子显式设 `ELECTRON_MIRROR` 环境变量下载。**不要删这个钩子**。
-2. **cmd.exe 参数破坏**：prompt 里的 `| < > "` 通过 spawn args 传递时被 cmd 解释截断（症状：AI 回复"消息没附上"/退出码 0 但无输出）→ **prompt 一律走 stdin**（`-p` 无参数 + `child.stdin.write`）。cliSpawnPrompt/spawnCli/cliTestSpawn 均已处理，新增 spawn 调用必须遵守。
-3. **CLI stream-json 需要 `--verbose`**：`-p` + `--output-format stream-json` 不加 `--verbose` 会退出码 1。
-4. **CLI 2.1.x 事件模型**：无逐 token 的 `content_block_delta`；每个回合输出完整 `assistant` 事件（content 数组含 thinking/text/tool_use 块）。解析时按 content 块类型提取（cli-engine.ts 已兼容新旧两种格式）。
-5. **`--effort-level` 参数不存在**（当前 CLI 版本）：思考强度通过环境变量 `CLAUDE_CODE_EFFORT_LEVEL` 传递。
-6. **`--session-id` 必须 UUID**；续接用 `--resume <claudeSessionId>`（存 sessions.claude_session_id）。
-7. **Node 22+ 的 `req.on('close')`**：请求体读完即触发（不是连接断开）→ SSE 中断检测用 `res.on('close') + !res.writableEnded`。
-8. **Electron 新版禁用 `window.prompt/confirm`**：重命名等交互必须内联输入框/自定义模态（ExplorerView 已改内联重命名；`window.confirm` 在 Electron 43 仍可用但不要新增 prompt）。
-9. **CSP**：`index.html` 的 CSP 必须包含 `connect-src` 11454/11455 + `img-src/media-src/frame-src` 11455（二进制预览用）。新增跨源资源记得同步改。
+1. **npm 11 改写下划线配置**：`.npmrc` 的 `electron_mirror` 会被转成 `electron-mirror` → postinstall 钩子 `scripts/ensure-electron-binary.mjs` 显式设 `ELECTRON_MIRROR`。**不要删这个钩子**。
+2. **cmd.exe 参数破坏**：prompt 里的 `| < > "` 经 spawn args 会被 cmd 解释截断 → **prompt 一律走 stdin**（`-p` 无参数 + `child.stdin.write`）。cliSpawnPrompt/spawnCli 均已处理。
+3. **CLI stream-json 需要 `--verbose`**：`-p` + `--output-format stream-json` 不加 `--verbose` 退出码 1。
+4. **CLI 2.1.x 事件模型**：无逐 token delta；每回合输出完整 `assistant` 事件（content 数组含 thinking/text/tool_use）。解析按 content 块类型提取（cli-engine.ts 兼容新旧两种格式）。
+5. **`--effort-level` 参数不存在**：思考强度用环境变量 `CLAUDE_CODE_EFFORT_LEVEL`。
+6. **`--session-id` 必须 UUID**；续接用 `--resume <claudeSessionId>`。
+7. **Node 22+ 的 `req.on('close')`**：请求体读完即触发 → SSE 中断检测用 `res.on('close') + !res.writableEnded`。
+8. **Electron 新版禁用 `window.prompt/confirm`**：交互用内联输入框/自定义模态。`window.confirm` 仍可用但不要新增 prompt。
+9. **CSP**：`index.html` 的 CSP 必须含 `connect-src` 11454/11455、`frame-src` 11455 + `about: blob:`（webview/srcdoc 预览）、`img-src` data: + 11455。新增跨源资源记得同步。
 10. **Windows 文件锁**：cc-switch 的 DB 被占用 → 读取时**复制到临时文件**再打开（ccswitch.ts）。
-10b. **版本号别用 `process.env.npm_package_version`**：只有 `npm run` 启动才有，打包后为 undefined → 显示 v0.0.0。用主进程 `app.getVersion()`（IPC `app:getVersion`，preload 暴露 `window.api.appVersion()` 返回 Promise）。
-10c. **Node 全局 fetch 不走系统代理**：更新检查等对外请求用 `net.fetch`（Electron，走 Chromium 网络栈尊重系统代理），并加镜像回退（jsDelivr）与重试（见 update.ts）。
-10d. **`-webkit-app-region: drag` 区域内的控件不可点击**（下拉/按钮失效）：所有交互元素必须显式 `-webkit-app-region: no-drag`（悬浮窗头部踩过坑）。
-10e. **Express `sendFile` 拒绝点开头的隐藏目录**（如 `.oap-preview`）→ 404。Office 转换输出目录用 `_oap_preview`（下划线开头）。
-10f. **pptx 高保真渲染**：优先系统 PowerPoint COM（PowerShell 调用 `SaveAs(path, 32)`，`ExportAsFixedFormat` 枚举参数在 PS 会转换失败）→ 系统 LibreOffice（`soffice --headless -env:UserInstallation=<OAP专属profile>`，避免污染用户配置）→ 版面级自研渲染（文本位置+图片，`SlideCanvas`）回退。曾尝试捆绑 LibreOffice（1.6GB）后按用户要求移除。
-10g. **pdf-parse v2 是 `PDFParse` 类**（`new PDFParse({data}).getText()`），不是默认导出函数。
-10h. **Electron 类型无 Windows `vibrancy: 'acrylic'`**：需 `'acrylic' as never` 断言；透明窗口需 `transparent: true` + `backgroundColor: '#00000000'` + 页面 body 背景透明（PresentAssistPage 挂载时设置）。
-10i. **汇报助手置顶**：`win.setAlwaysOnTop(true, 'screen-saver')`（最高级别，可盖过全屏放映）+ `setVisibleOnAllWorkspaces`。
-10j. **electron-builder 图标**：`win.icon` 直接指向 `resources/icon.ico`（PIL 生成多尺寸），不要用 png——icon-tool 的 wasm 转换在本机报 `WebAssembly.Memory(): could not allocate memory`。图标源图 ≤512×512（778×778 也会触发）。换图标：改 `inputResoureces/icon.png` → 缩到 512 → 生成 `resources/icon.ico` + 同步 `assets/app-icon.png`。
-11. **conda 检测**：不要依赖 PATH；用 PowerShell 注册表（HKLM/HKCU PythonCore）+ 全盘扫描（`where /r`）+ `conda env list --json`（经 base python `-m conda`）。运行脚本直接用环境 `python.exe` 绝对路径（`<root>/envs/<name>/python.exe`），**不要用 `conda run`**（PATH 上可能没有 conda）。
-12. **bash heredoc/模板字符串**：本项目大量代码经 node -e 脚本写入，`\n` 与模板字符串会被 bash 转义破坏——修完**必须跑 typecheck**。
-13. **React 19 + TS7**：JSX 组件 props 里 `key` 需要显式声明；`React.FormEvent` 等命名空间类型必须从 react 显式导入。
+10b. **版本号别用 `process.env.npm_package_version`**：只有 `npm run` 启动才有 → 用主进程 `app.getVersion()`（IPC `app:getVersion`）。
+10c. **Node 全局 fetch 不走系统代理**：更新检查等用 `net.fetch`（走系统代理）+ 镜像回退（jsDelivr）。
+10d. **`-webkit-app-region: drag` 区域内控件不可点击**：交互元素必须显式 `no-drag`（悬浮窗头部下拉曾失效）。
+10e. **Express `sendFile` 拒绝点开头隐藏目录**（`.oap-preview` → 404）：Office 转换输出用 `_oap_preview`。
+10f. **pptx 高保真渲染三级**：系统 PowerPoint COM（PowerShell `SaveAs(path, 32)`；`ExportAsFixedFormat` 枚举参数在 PS 会失败）→ 系统 LibreOffice（`soffice --headless -env:UserInstallation=<OAP专属profile>`）→ 版面自研渲染（SlideCanvas）。曾尝试捆绑 LibreOffice（1.6GB）后按用户要求移除。
+10g. **pdf-parse v2 是 `PDFParse` 类**：`new PDFParse({data}).getText()`，不是默认导出函数。
+10h. **Electron 类型无 Windows `vibrancy: 'acrylic'`**：需 `'acrylic' as never`；透明窗口在部分系统渲染失败 → 汇报助手最终用**暗色渐变 + 面板半透明**方案（不依赖系统亚克力）。
+10i. **汇报助手置顶**：`setAlwaysOnTop(true, 'screen-saver')`（最高级别，可盖过全屏）+ `setVisibleOnAllWorkspaces({visibleOnFullScreen:true})`。
+10j. **electron-builder 图标**：`win.icon` 指向 `resources/icon.ico`（PIL 多尺寸生成）；png 转换报 `WebAssembly.Memory` 错误。图标源 ≤512×512。换图标：改 `inputResoureces/icon.png` → 512 → 生成 ico + 同步 `assets/app-icon.png`。
+10k. **CLI 权限确认——交互协议不可用，用 PreToolUse Hook**：`--input-format stream-json` 只支持 `--print`（2.1.x），无交互确认 → 会话前写沙盒 `.claude/settings.json` 的 `hooks.PreToolUse(Bash)` 指向 `scripts/perm-hook.js` → POST 11455 → 弹窗 → 返回 `permissionDecision`。**「总是允许」**持久化到沙盒白名单。hook 异常默认 deny（安全优先）。
+10l. **CLI 进程残留**：Windows 下 `child.kill()` 只杀 cmd 包装，CLI 子进程残留 → close 不触发 → 会话卡 running → **abort 时 `taskkill /pid <pid> /t /f` 杀进程树 + 5s 兜底强制落定**。
+10m. **会话状态机收敛**（chat.ts）：`finish()` 必须幂等（finished 标志）；`run()` 必须 `.catch()` 兜底；断连立即 `setTimeout(finish('idle'),0)`（TDZ 规避）；10 分钟硬超时。任何路径都必须让 status 收敛，否则 409 卡死。
+10n. **自绘下拉**：原生 select 在 Windows 无背景样式不可控 → CustomSelect（按钮+弹出列表，见 PresentAssistPage）。类似弹层都要实色背景（`background-color`）防透明。
+10o. **TS7 TDZ**：`const` 定义前的回调引用报错——signal/abort 处理要放在 Promise executor 内 finish 定义之后。
+10p. **`run()` 无 catch 的 unhandled rejection**：异步路由入口必须 `.catch()`，否则状态/响应不收敛。
+10q. **easyslides 仓库 1.4 万文件/41MB**：zip 全量下载在慢网络下超时 → trees API 过滤核心目录（根+references+scripts+skills+projects）并发 6 路下载；templates 按需 `includeTemplates`。
 
 ---
 
@@ -164,8 +192,11 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 - 渲染进程 console：`ELECTRON_ENABLE_LOGGING=1 npm run dev`
 - API 冒烟：`curl http://127.0.0.1:11455/api/health`
 - CLI 手工复现：`claude.cmd --output-format stream-json --verbose -p`（stdin 输入 prompt）
+- 权限 hook 调试：直接 POST `http://127.0.0.1:11455/api/cli-permission/request`（会弹窗，10s 内决策可测链路）
 
-**测试模式**：所有 API 均可用 curl/Node fetch 直接测（CORS 只拦浏览器）。会话聊天实测模板见会话历史（创建项目→会话→chat SSE→查 messages 落库→清理）。
+**测试模式**：所有 API 均可用 curl/Node fetch 直接测（CORS 只拦浏览器）。
+
+**环境/数据清理**：设置 → 缓存与存储 →「清除缓存」（Chromium 缓存 + 各沙盒 `_oap_preview`）。
 
 ---
 
@@ -173,35 +204,29 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 
 1. `package.json` 改 version
 2. 更新 README（中英文版）+ HANDOFF
-3. `git commit -m "release vX.Y.Z"` + `git push origin main`
+3. `git commit -m "release vX.Y.Z"` + `git push origin main`（注意远程可能被改，rebase 时保留本地 HANDOFF）
 4. `npm run dist` → `release/open_Academic_Pipeline_v_X.Y.Z_beta_x64.exe`
-5. GitHub → Releases → 新建 tag `vX.Y.Z-beta` → 拖拽 exe 上传 → Publish
-6. 更新 `https://kawasakikusako.github.io/generalExp/kawasakiApps/oap.xml` 的 main/sub/dev（应用内"检查更新"读此文件）
+5. GitHub → Releases → 新建 tag `vX.Y.Z-beta` → 拖拽 exe **+ latest.yml + blockmap** 上传（electron-updater 增量更新依赖）
+6. 更新 `oap.xml` 的 main/sub/dev + updateSite/updatePack/updateInfo（应用内"检查更新"读取）
 
-**发布记录**：
-- v0.7.4（2026-08-14）：已推送 main（9aebc21）；NSIS 安装包已生成；GitHub Release（tag v0.7.4-beta）与 oap.xml 更新由维护者手动完成（本机无 gh CLI/token）。注意：远程曾提交 "Delete HANDOFF.md"，rebase 时保留本地版本。
-
-**打包注意**：`win.icon` 必须指向 `resources/icon.ico`（见 §6 坑 #10j，png 转换会 wasm 内存失败）；提交前确认 `release/` 在 .gitignore 中且未被跟踪。
-
-**版本检查**：`server/routes/update.ts` 抓取 oap.xml 解析 `<main>/<sub>/<dev>` 与 package.json 比较；有新版弹窗提示下载页（GitHub + 官网）。
+**发布记录**：v0.7.4（2026-08-14）已推送；0.8.x 开发中。
+**打包注意**：`win.icon` 用 `resources/icon.ico`（坑 #10j）；提交前确认 `release/` 未被跟踪（gitignore 时序坑——曾误提交 121MB 安装包，git rm --cached 修复）。
 
 ---
 
 ## 9. 已知问题 / TODO
 
-- [ ] **打包后未实测**：dev 模式全链路验证过，安装包（NSIS）安装后的运行未完整回归
+- [ ] 打包后全链路回归（0.8.x 新功能：权限弹窗/webview/汇报助手/API 设置/ARS 内置 需安装版验证）
 - [ ] `window.confirm` 在部分 Electron 版本被弃用——建议逐步替换为应用内确认模态
-- [ ] 启动日志偶现 `DEP0190 DeprecationWarning: shell option true`（某处 spawn 带 shell:true + args 数组），排查来源并移除
-- [ ] 汇报助手/悬浮窗历史存 localStorage（各窗口独立），未做跨窗口同步
-- [ ] 汇报助手头部模型/强度下拉为自绘组件（原生 select 在 Windows 无背景），后续可抽成通用组件
-- [ ] `release/` 曾因 gitignore 时序被误提交 121MB 安装包（已 git rm --cached 修复）；新增生成物注意先确认忽略规则
 - [ ] 会话列表大数据量无虚拟滚动
 - [ ] 工作台选项卡不支持拖拽排序
-- [ ] 文献编辑（PUT）接口存在但 UI 未接编辑入口（仅删除）
-- [ ] API 引擎无工具调用（纯文本），无法操作沙盒文件
-- [ ] 悬浮窗（floating-chat 窗口）与主窗口数据不互通（localStorage 隔离）——历史仅存浮窗侧
-- [ ] `AAAAA.MD` 为 CLI 调试产生的垃圾文件，已 gitignore（可手动删除）
-- [ ] update.xml 的 GitHub Pages 部署后需实测更新提示链路
+- [ ] 文献编辑（PUT）接口存在但 UI 未接编辑入口
+- [ ] API 引擎无工具调用（纯文本，无法操作沙盒文件）
+- [ ] 悬浮窗/汇报助手历史存 localStorage（各窗口独立），未做跨窗口同步
+- [ ] 汇报助手自绘下拉组件可抽成通用组件
+- [ ] `DEP0190 shell option true` 警告偶现（排查 spawn shell 来源）
+- [ ] 权限 hook 弹窗：AI 多窗口同时请求时弹多个（应做合并/去重）
+- [ ] 演讲者视图（audience 窗口）代码保留但入口已弃用（汇报助手取代）
 
 ---
 
@@ -209,13 +234,15 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 
 | 文件 | 用途 |
 |---|---|
-| `inputResoureces/icon.png` | 应用图标（窗口/任务栏/托盘/打包） |
+| `inputResoureces/icon.png` | 应用图标源图（≤512×512） |
+| `resources/icon.png` | 512 副本（渲染头像/悬浮窗图标） |
+| `resources/icon.ico` | **打包用图标**（PIL 多尺寸生成，见坑 #10j） |
 | `inputResoureces/grayBack.png` | 侧栏背景花纹 + 标题栏 logo |
-| `resources/icon.png` | 上述 icon.png 的副本（electron-vite/打包引用） |
-| `src/renderer/src/assets/app-icon.png` / `app-back.png` | 渲染进程内引用副本 |
+| `inputResoureces/banner.png` / `banner0_7_4.png` | 发布横幅 |
 | `inputResoureces/README_EN.md` | 英文版 README |
+| `scripts/perm-hook.js` | **CLI 权限确认 hook**（沙盒 settings.json 引用） |
 
-更换图标：替换 `inputResoureces/` 原图后同步覆盖 `resources/` 与 `assets/` 两份副本。
+更换图标：改 `inputResoureces/icon.png` → 缩到 512 → 覆盖 `resources/icon.png` + `assets/app-icon.png` → PIL 生成 `resources/icon.ico`（256/128/64/48/32/16）。
 
 ---
 
@@ -223,47 +250,114 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 
 | 需求 | 位置 |
 |---|---|
-| 窗口/托盘/悬浮窗/IPC | `src/main/index.ts` |
+| 窗口/托盘/悬浮窗/IPC/权限桥/自动更新 | `src/main/index.ts` |
 | preload API 面 | `src/preload/index.ts` + `index.d.ts` |
 | 后端入口/路由挂载 | `src/server/index.ts` |
 | DB schema/迁移 | `src/server/db.ts` |
-| 设置（默认值/存取） | `src/server/settings.ts` + `routes/settings.ts` |
+| 系统设置（默认值/存取/Provider） | `src/server/settings.ts` + `routes/settings.ts` |
 | 个性化设置注册中心（schema 驱动） | `src/server/personalization.ts` + `routes/personalization.ts` |
-| 个性化设置通用表单 | `src/renderer/src/components/settings/PersonalizationForm.tsx` |
-| 汇报助手（悬浮窗纯对话） | `src/renderer/src/pages/PresentAssistPage.tsx` + `routes/present-assist.ts`（文件文本提取） |
-| 临时对话悬浮窗 | `src/renderer/src/pages/FloatingChatPage.tsx` + chat.ts 的 `/temp/chat`（CLI）与 `/temp/chat-api`（API 引擎） |
-| Office 预览/高保真渲染 | `src/server/routes/office.ts`（mammoth/SheetJS/COM/LibreOffice）+ `Workbench.tsx` 的 OfficePreview |
-| 版面渲染（pptx 轻量放映） | `src/renderer/src/components/present/SlideCanvas.tsx` + `shared/types.ts` 的 SlideDetail |
-| CLI 引擎（spawn/解析/标题生成） | `src/server/claude/cli-engine.ts` |
-| API 引擎（thinking/流式） | `src/server/claude/api-engine.ts` |
-| 聊天路由（SSE/注入/落盘/自动标题） | `src/server/routes/chat.ts` |
+| API Provider 管理（模板/测速/导入导出/工具检测） | `src/server/routes/api-providers.ts` |
+| ARS 内置（安装/更新/部署/PPT 技能/权限端点） | `src/server/routes/ars.ts` |
+| CLI 引擎（spawn/解析/权限总线） | `src/server/claude/cli-engine.ts` |
+| API 引擎（双格式/Provider/技能注入） | `src/server/claude/api-engine.ts` |
+| 聊天路由（SSE/注入/会话状态机/stop 端点） | `src/server/routes/chat.ts` |
 | ARS 技能映射/注入 | `src/server/ars-skills.ts` |
 | 任务/项目类型模板 | `src/server/project-templates.ts` |
-| 文献解析（BibTeX/RIS/JSON/文本） | `src/server/literature-parser.ts` |
-| 推荐（arXiv/RSS/关键词） | `src/server/routes/recommendations.ts` |
+| Office 预览/高保真（mammoth/SheetJS/COM/LibreOffice） | `src/server/routes/office.ts` |
+| 汇报助手文件提取/项目状态 | `src/server/routes/present-assist.ts` |
+| 文献解析 | `src/server/literature-parser.ts` |
+| 推荐（arXiv/RSS） | `src/server/routes/recommendations.ts` |
 | 环境检测（注册表/conda/uv） | `src/server/routes/envs.ts` |
-| 模型列表（cc-switch） | `src/server/routes/ccswitch.ts` |
-| 工作区状态（tabs/草稿/主题） | `src/renderer/src/store/workspace.ts` |
-| 布局框架（标题栏/活动栏/状态栏） | `src/renderer/src/components/Layout.tsx` |
+| 技能管理（市场/安装/部署/API 注入） | `src/server/routes/skills.ts` |
+| 随记（项目/全局） | `src/server/routes/scratch.ts` |
+| 布局框架 + 全局弹窗（更新/权限/关于） | `src/renderer/src/components/Layout.tsx` |
 | 工作台（选项卡/面板/右键） | `src/renderer/src/components/workspace/Workbench.tsx` |
-| 资源管理器（树/右键/拖拽/重命名） | `src/renderer/src/components/workspace/ExplorerView.tsx` |
+| 资源管理器（树/右键/重命名） | `src/renderer/src/components/workspace/ExplorerView.tsx` |
 | 副侧栏（分组会话+内嵌对话） | `src/renderer/src/components/workspace/AuxPanel.tsx` |
-| 编辑器（CodeMirror 封装） | `src/renderer/src/components/workspace/CodeEditor.tsx` |
-| 悬浮窗页面 | `src/renderer/src/pages/FloatingChatPage.tsx` |
-| 设计系统（主题变量） | `src/renderer/src/assets/main.css` |
-| 组件样式 | `src/renderer/src/App.css` |
+| 会话列表 | `src/renderer/src/components/workspace/SessionsView.tsx` |
+| 会话面板（工作台） | `src/renderer/src/components/workspace/ChatPanel.tsx` |
+| 独立会话页 | `src/renderer/src/pages/SessionPage.tsx` |
+| Markdown 编辑器（三模式/WYSIWYG/导出 Word） | `src/renderer/src/components/workspace/MarkdownEditor.tsx` |
+| 编辑器（CodeMirror 封装/主题） | `src/renderer/src/components/workspace/CodeEditor.tsx` |
+| 汇报助手（纯对话悬浮窗） | `src/renderer/src/pages/PresentAssistPage.tsx` |
+| 临时对话悬浮窗 | `src/renderer/src/pages/FloatingChatPage.tsx` |
+| 权限确认弹窗 | `src/renderer/src/components/PermissionModal.tsx` |
+| 更新弹窗（三态/增量） | `src/renderer/src/components/UpdateModal.tsx` |
+| API 设置页 | `src/renderer/src/pages/ApiSettingsPage.tsx` |
+| Skill 设置页（网格/市场/ARS 管理） | `src/renderer/src/pages/SkillSettingsPage.tsx` |
+| 个性化设置页 | `src/renderer/src/pages/PersonalSettingsPage.tsx` + `components/settings/PersonalizationForm.tsx` |
+| 技能市场模态 | `src/renderer/src/components/settings/SkillMarketModal.tsx` |
+| 帮助文档页/内容 | `src/renderer/src/pages/HelpPage.tsx` + `lib/help-content.ts` |
+| 版面渲染（pptx 轻量放映） | `src/renderer/src/components/present/SlideCanvas.tsx` |
+| 工作区状态（tabs/草稿/主题/编辑器偏好） | `src/renderer/src/store/workspace.ts` |
+| 个性化应用（颜色/背景图/壁纸） | `src/renderer/src/lib/personalize.ts` |
+| 文件类型图标 | `src/renderer/src/components/FileTypeIcon.tsx` + `Icon.tsx`（53+ 图标） |
 | 共享类型 | `src/shared/types.ts` |
+| 设计系统（主题变量/Fluent 圆角） | `src/renderer/src/assets/main.css` + `App.css` |
 
 ---
 
-## 12. 给接手者的建议
+## 12. 会话状态机（0.8 重构，重要）
 
-1. **先跑通 dev 再改代码**：`npm run dev` + 创建测试项目走一遍全流程（创建→任务→会话→文件→知识库）
+**目标**：任何路径（正常/错误/中断/超时/断连）都必须让 session.status 收敛到 idle/error，绝不卡 running。
+
+**后端（chat.ts）**：
+- 请求入口：status=running → 409；通过 → 落库 user 消息 + `runningSessions.set(id, abort)` 注册
+- `finish(status, extra)`：**幂等**（`finished` 标志 + `clearTimeout(hardTimeout)` + 注册表删除）；完成落库 + 任务翻转 + autoTitle
+- 收敛路径：
+  1. 正常完成 → sseSend done → finish('idle')
+  2. 引擎错误 → onError → finish('error')
+  3. 客户端断连 → `res.on('close')` → abort + `setTimeout(finish('idle'),0)`（TDZ）
+  4. 手动停止 → `POST /api/sessions/:id/stop` → abort 注册表控制器 + **立即**复位 idle（不依赖断连）
+  5. 硬超时 10 分钟 → abort + finish('error')
+  6. run() 内未捕获异常 → `.catch()` 兜底 → onError
+- **CLI 中断**：cli-engine abort 时 `taskkill /T /F` 杀进程树 + 5s 兜底强制 settle
+
+**前端**：
+- 停止按钮 = `abortRef.abort()` + `api.stopSession(id)` **双保险** + 立即复位 sending/streaming + reload
+- 发送前检查 `session.status === 'running'` → 自动先 stop（不再 409 卡死）
+- sending 3 分钟无响应自动复位（保险）
+- 会话列表：sessionsVersion 依赖 + 10s 轮询（状态实时同步）
+
+**权限确认（PreToolUse Hook 链路）**：
+```
+CLI 执行 Bash → 沙盒 .claude/settings.json hooks.PreToolUse(Bash)
+  → node scripts/perm-hook.js（CLI 子进程，stdin 收 hook JSON）
+  → POST /api/cli-permission/request（11455，60s 超时自动 deny）
+  → permissionBus（EventEmitter，server↔main 同进程）
+  → main 广播所有窗口 → PermissionModal 弹窗（允许/拒绝/总是允许）
+  → 决策 IPC → bus → 端点响应 → hook 输出 permissionDecision → CLI 继续/跳过
+「总是允许」→ 写入该沙盒 .claude/settings.json 白名单 + 内存规则（下次直接放行不弹窗）
+「完全信任模式」（设置→沙盒环境）→ CLI 加 --dangerously-skip-permissions，跳过 hook
+```
+
+**API Provider（类 cc-switch）**：
+- settings 表 `apiProviders`（多配置：name/type(anthropic|openai)/baseUrl/apiKey/model/note）+ `activeApiProviderId`
+- api-engine：active provider 优先（OpenAI 兼容 `/chat/completions` + Bearer 或 Anthropic `/v1/messages`）；无 provider 回退全局 apiKey/baseUrl（API 设置页"保底直连"）
+- 模板 12 家一键导入（DeepSeek/Kimi/通义/智谱/OpenAI/Claude/MiniMax/阶跃/硅基流动/豆包/零一/…）
+- 从 cc-switch 导入（`~/.cc-switch/cc-switch.db` 临时复制读库）；导出/导入 JSON；测速（最小请求）
+- 工具检测：6 agent（claude/codex/gemini/opencode/cline/deepseek）三级检测（where → 配置目录 → 常见路径）
+
+**ARS 内置化**：
+- 存储 `DATA_ROOT/ars/`（含 ars-meta.json：版本/来源/技能清单）
+- 安装：插件缓存复制（离线）→ marketplace git remote 探测 → GitHub trees+raw
+- 更新：版本对比 + 旧版 `.bak-<ts>` 备份
+- 部署：复制到检测到的 agent 技能目录（`~/.<agent>/skills/ars`）
+- PPT 技能：easyslides 安装到 `DATA_ROOT/ars/ppt-slides/`（核心目录并发下载，templates 按需）
+- 任务注入：`findSkillFile` 优先内置目录（热插拔，实时扫描）
+
+---
+
+## 13. 给接手者的建议
+
+1. **先跑通 dev 再改代码**：`npm run dev` + 创建测试项目走一遍全流程（创建→任务→会话→文件→知识库→汇报助手）
 2. **改后端必须重启**（动态 import 但无热重载）；改渲染进程 Vite HMR 自动生效
 3. **所有新 API**：先在 `server/index.ts` 挂载 → `lib/api.ts` 封装 → 页面调用；类型放 `shared/types.ts`
 4. **所有 spawn CLI 的调用**：遵守 §6 坑 #2（stdin）与 #3（--verbose）
-5. **Windows 特殊字符**（`| < > "`）在 prompt/文件名中常见——任何传递路径或文本的地方都要考虑转义与编码（UTF-8 全链路）
-6. 提交信息用中文 + `Co-Authored-By: Claude <noreply@anthropic.com>`
+5. **Windows 特殊字符**（`| < > "`）在 prompt/文件名中常见——传递路径与文本都要考虑转义与编码（UTF-8 全链路）
+6. **会话状态机**：新增引擎/路由路径时，必须保证 finish 收敛（§12）
+7. **权限确认**：新增需要弹窗的命令类别时，扩展 perm-hook 与端点即可；「总是允许」走白名单持久化
+8. 提交信息用中文 + `Co-Authored-By: Claude <noreply@anthropic.com>`
 
 ---
 
