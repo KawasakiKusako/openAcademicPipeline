@@ -1,7 +1,7 @@
 # HANDOFF 文档 — Open Academic Pipeline (OAP)
 
 > 本文档面向接手本项目的开发者（人或 AI），事无巨细地记录架构、决策、坑与流程。
-> 最后更新：2026-08-15 · 版本 v0.8.1（开发中，0.7.4 已发布）
+> 最后更新：2026-08-15 · 版本 v0.9.2（已发布；0.7.4 → 0.8.1 → 0.9.2）
 
 ---
 
@@ -63,9 +63,9 @@
 │  ├─ routes/: projects/tasks/sessions/literature/libraries/files/run/    │
 │  │           chat/claude/ccswitch/envs/settings/skills/scratch/         │
 │  │           recommendations/update/personalization/present-assist/     │
-│  │           office/api-providers/ars                                    │
+│  │           office/api-providers/ars/style（自定义 CSS/备份/tar 导出）   │
 │  ├─ claude/: cli-engine（spawn CLI + 权限总线）+ api-engine（双格式）     │
-│  └─ personalization.ts（个性化设置注册中心，schema 驱动）                 │
+│  └─ personalization.ts（个性化设置注册中心，schema 驱动，含旧值迁移）     │
 │                                                                          │
 │  preload/: contextBridge 暴露 window.api（含 IPC 转发）                  │
 │                                                                          │
@@ -184,6 +184,11 @@
 10y. **Python 环境优先级（0.8.1）**：用户选择的 conda/system 环境只在 run.ts（脚本运行）生效；沙盒里的 claude CLI 执行 `python` 走的是默认 PATH。修复：spawnCli 按 `getPythonEnv()` 计算 PATH 前缀（conda: `<root>/envs/<name>` + Scripts；system: python 所在目录）注入子进程 env。
 10z. **超时误杀大任务（0.8.1 修复）**：前端曾固定 3 分钟"无响应自动停止"（不看有没有输出）→ 大任务必被砍；后端 10 分钟硬超时同理。现已删除前端自动停止；后端改为**活动感知**：`armHardTimeout()` 在每次 SSE 输出（text/tool_use）时重置 10 分钟计时，只有真死锁（10 分钟零输出）才强制收敛。
 10aa. **沙盒未信任 → 白名单失效 + 弹窗刷屏（0.8.1 修复）**：未 trust 的工作区会被 Claude Code 忽略 permissions.allow（提示 "Ignoring N permissions.allow entries... has not been trusted"），每个常见命令都走 PreToolUse hook → 弹窗遮罩挡住全部输入，表现为"开新对话整个 OAP 卡住"。修复两层：① chat.ts 在 spawn CLI 前写 `~/.claude.json` 的 `projects["<sandbox>"].hasTrustDialogAccepted = true`（合并式）；② 权限端点 `isSandboxAllowed()` 先读沙盒 settings.json 白名单匹配 `Bash(<cmd>:*)`，命中直接放行——**CC 的 PreToolUse hook 先于白名单检查触发，端点必须自己兜底**，否则白名单命令依然弹窗。
+10ab. **tar v7 是 Promise API（0.9.2）**：`tar.c()`/`tar.t()`/`tar.x()` 不带 callback 时返回 Promise——路由里没 await 会生成**无效归档**（解压报 TAR_BAD_ARCHIVE）。style.ts 导出用 `tar.c({ ..., sync: true }, ['.'])` 同步模式。
+10ac. **winMaterial（亚克力/云母）需要透明窗口背景（0.9.2）**：`BrowserWindow.setBackgroundMaterial()` 前必须先 `setBackgroundColor('#00000000')`（否则材质不生效）；渲染端 `body[data-material]` 半透明化 .app-frame 让系统材质透出；仅 Win11 支持，不满足时静默退化为半透明（无报错）。Win 最大化时 `setOpacity` 无效是 Electron 已知行为。
+10ad. **壁纸模糊要防边缘白边（0.9.2）**：`body.has-bg::before` 的 `filter: blur()` 会让四边透出底色 → 伪元素必须 `inset: -24px` 放大（超出屏幕的部分自然被裁掉）。
+10ae. **个性化旧值迁移（0.9.2）**：字段类型演进时（如 wallpaperOpacity select→number），旧存储值需迁移——`getPersonalizationValues()` 里用 `LEGACY_VALUE_MAP[key]` 换算后再 normalize（否则滑块显示旧字符串、控件崩）。保存过一次后即落新格式。
+10af. **`npm run dev` 进程残留（日常）**：Windows 下 npm wrapper 被杀后 Electron 子进程常残留（11455 端口仍占用）——清理用 `netstat -ano | grep 11455` 找 PID → `tasklist /FI "PID eq <pid>"` 确认 electron.exe → `taskkill /PID <pid> /T /F`。
 
 ---
 
@@ -219,14 +224,14 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 5. GitHub → Releases → 新建 tag `vX.Y.Z-beta` → 拖拽 exe **+ latest.yml + blockmap** 上传（electron-updater 增量更新依赖）
 6. 更新 `oap.xml` 的 main/sub/dev + updateSite/updatePack/updateInfo（应用内"检查更新"读取）
 
-**发布记录**：v0.7.4（2026-08-14）已推送；0.8.1 开发中（会话状态机代际化、引擎收敛兜底、权限 hook 路径修复、冷启动阻塞修复、dev 数据目录隔离）。
+**发布记录**：v0.7.4（2026-08-14）已推送；**v0.9.2（2026-08-15）已发布**（会话引擎重构、权限体系修复、样式/个性化体系、Fluent 图标、自定义 CSS + AI 改样式）。发布流程见 §8。
 **打包注意**：`win.icon` 用 `resources/icon.ico`（坑 #10j）；提交前确认 `release/` 未被跟踪（gitignore 时序坑——曾误提交 121MB 安装包，git rm --cached 修复）。
 
 ---
 
 ## 9. 已知问题 / TODO
 
-- [ ] 打包后全链路回归（0.8.x 新功能：权限弹窗/webview/汇报助手/API 设置/ARS 内置 需安装版验证）
+- [ ] 打包后全链路回归（0.8.x/0.9.2 新功能：权限弹窗/webview/汇报助手/API 设置/ARS 内置/自定义 CSS/壁纸体系/Fluent 图标 需安装版验证）
 - [ ] `window.confirm` 在部分 Electron 版本被弃用——建议逐步替换为应用内确认模态
 - [ ] 会话列表大数据量无虚拟滚动
 - [ ] 工作台选项卡不支持拖拽排序
@@ -237,6 +242,8 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 - [ ] `DEP0190 shell option true` 警告偶现（排查 spawn shell 来源）
 - [ ] 权限 hook 弹窗：AI 多窗口同时请求时弹多个（应做合并/去重）
 - [ ] 演讲者视图（audience 窗口）代码保留但入口已弃用（汇报助手取代）
+- [ ] 0.9.2 打包版验证：winMaterial 亚克力/云母在 Win11 实际效果、tar 导出（dependencies 已提升）、oap-style.js 落盘
+- [ ] 图标脚本 `fetch-fluent-icons.mjs` 依赖 GitHub raw 网络（离线无法重新生成）
 
 ---
 
@@ -287,6 +294,12 @@ npm run dist       # build + electron-builder Windows x64 NSIS → release/
 | 会话列表 | `src/renderer/src/components/workspace/SessionsView.tsx` |
 | 会话面板（工作台） | `src/renderer/src/components/workspace/ChatPanel.tsx` |
 | 聊天流控制 hook（同步锁/runId 守卫/停止双保险） | `src/renderer/src/lib/useChatStream.ts` |
+| 自定义 CSS 注入（fetch + `<style>`） | `src/renderer/src/lib/customStyle.ts` |
+| 自定义样式管理区块（个性化设置页） | `src/renderer/src/components/settings/CustomStyleSection.tsx` |
+| 样式路由（自定义 CSS/备份/tar 导出/oap-style 部署） | `src/server/routes/style.ts` |
+| AI 改样式脚本（沙盒内可执行） | `scripts/oap-style.js`（?raw 内嵌 → DATA_ROOT） |
+| Fluent 图标生成脚本（一次性拉取重生成 Icon.tsx） | `scripts/fetch-fluent-icons.mjs` |
+| 样式体系文档（token/自定义 CSS/图标/tar） | `StyleHANDOFF.md` |
 | 独立会话页 | `src/renderer/src/pages/SessionPage.tsx` |
 | Markdown 编辑器（三模式/WYSIWYG/导出 Word） | `src/renderer/src/components/workspace/MarkdownEditor.tsx` |
 | 编辑器（CodeMirror 封装/主题） | `src/renderer/src/components/workspace/CodeEditor.tsx` |
